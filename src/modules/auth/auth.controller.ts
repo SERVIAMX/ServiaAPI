@@ -3,6 +3,7 @@ import {
   Controller,
   Headers,
   Ip,
+  Get,
   Patch,
   Post,
 } from '@nestjs/common';
@@ -53,6 +54,13 @@ export class AuthController {
     @Body() dto: LogoutDto,
   ) {
     return this.authService.logout(user.userId, dto.refreshToken);
+  }
+
+  @Get('me')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
+  me(@CurrentUser() user: CurrentUserPayload) {
+    return this.authService.me(user.userId);
   }
 
   @Public()

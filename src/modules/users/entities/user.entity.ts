@@ -14,7 +14,7 @@ import { bigintTransformer } from '../../../common/transformers/bigint.transform
 import { Client } from '../../clients/entities/client.entity';
 import { Role } from '../../roles/entities/role.entity';
 
-@Entity('users')
+@Entity({ name: 'Users' })
 export class User {
   @PrimaryGeneratedColumn({
     type: 'bigint',
@@ -23,11 +23,11 @@ export class User {
   id: number;
 
   @ManyToOne(() => Client, { onDelete: 'RESTRICT', onUpdate: 'CASCADE' })
-  @JoinColumn({ name: 'clientId' })
+  @JoinColumn({ name: 'ClientId' })
   client: Client;
 
   @ManyToOne(() => Role, { onDelete: 'RESTRICT', onUpdate: 'CASCADE' })
-  @JoinColumn({ name: 'roleId' })
+  @JoinColumn({ name: 'RoleId' })
   role: Role;
 
   @Column({ type: 'varchar', length: 100 })

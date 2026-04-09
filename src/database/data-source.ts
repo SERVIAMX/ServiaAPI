@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { DataSource } from 'typeorm';
+import { PascalCaseNamingStrategy } from './pascal-case-naming.strategy';
 
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
@@ -13,6 +14,7 @@ export default new DataSource({
   database: process.env.DB_NAME || 'servia_api',
   timezone: process.env.DB_TIMEZONE || '-06:00',
   charset: 'utf8mb4',
+  namingStrategy: new PascalCaseNamingStrategy(),
   synchronize: false,
   logging: process.env.DB_LOGGING === 'true',
   entities: [path.join(__dirname, '../**/*.entity{.ts,.js}')],

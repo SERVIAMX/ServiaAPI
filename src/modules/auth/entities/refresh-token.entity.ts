@@ -10,7 +10,7 @@ import {
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
 import { User } from '../../users/entities/user.entity';
 
-@Entity('refresh_tokens')
+@Entity({ name: 'RefreshTokens' })
 export class RefreshToken {
   @PrimaryGeneratedColumn({
     type: 'bigint',
@@ -19,7 +19,7 @@ export class RefreshToken {
   id: number;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE', onUpdate: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
+  @JoinColumn({ name: 'UserId' })
   user: User;
 
   @Column({ type: 'text' })

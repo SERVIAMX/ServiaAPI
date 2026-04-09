@@ -13,7 +13,7 @@ import { PermissionAction } from '../../../common/enums/permission-action.enum';
 import { AppModuleEntity } from '../../app-modules/entities/app-module.entity';
 import { RolePermission } from './role-permission.entity';
 
-@Entity('permissions')
+@Entity({ name: 'Permissions' })
 export class Permission {
   @PrimaryGeneratedColumn({
     type: 'bigint',
@@ -25,7 +25,7 @@ export class Permission {
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   })
-  @JoinColumn({ name: 'moduleId' })
+  @JoinColumn({ name: 'ModuleId' })
   module: AppModuleEntity;
 
   @Column({

@@ -125,7 +125,7 @@ export class ClientsService {
         .createQueryBuilder()
         .softDelete()
         .from(User)
-        .where('clientId = :cid', { cid: id })
+        .where('ClientId = :cid', { cid: id })
         .execute();
       await queryRunner.manager.softRemove(Client, client);
       await queryRunner.commitTransaction();

@@ -10,7 +10,7 @@ import {
 } from 'typeorm';
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
 
-@Entity('clients')
+@Entity({ name: 'Clients' })
 export class Client {
   @PrimaryGeneratedColumn({
     type: 'bigint',

@@ -20,13 +20,13 @@ export class CreateInitialSchema1730169600000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query('SET FOREIGN_KEY_CHECKS = 0');
-    await queryRunner.query('DROP TABLE IF EXISTS role_permissions');
-    await queryRunner.query('DROP TABLE IF EXISTS permissions');
-    await queryRunner.query('DROP TABLE IF EXISTS app_modules');
-    await queryRunner.query('DROP TABLE IF EXISTS refresh_tokens');
-    await queryRunner.query('DROP TABLE IF EXISTS users');
-    await queryRunner.query('DROP TABLE IF EXISTS roles');
-    await queryRunner.query('DROP TABLE IF EXISTS clients');
+    await queryRunner.query('DROP TABLE IF EXISTS `RolePermissions`');
+    await queryRunner.query('DROP TABLE IF EXISTS `Permissions`');
+    await queryRunner.query('DROP TABLE IF EXISTS `AppModules`');
+    await queryRunner.query('DROP TABLE IF EXISTS `RefreshTokens`');
+    await queryRunner.query('DROP TABLE IF EXISTS `Users`');
+    await queryRunner.query('DROP TABLE IF EXISTS `Roles`');
+    await queryRunner.query('DROP TABLE IF EXISTS `Clients`');
     await queryRunner.query('SET FOREIGN_KEY_CHECKS = 1');
   }
 }

@@ -131,7 +131,7 @@ export class RolesService {
       .createQueryBuilder()
       .delete()
       .from(RolePermission)
-      .where('roleId = :rid', { rid: roleId })
+      .where('RoleId = :rid', { rid: roleId })
       .execute();
 
     const rows = permissionIds.map((pid) =>
@@ -154,8 +154,8 @@ export class RolesService {
       .createQueryBuilder()
       .delete()
       .from(RolePermission)
-      .where('roleId = :rid', { rid: roleId })
-      .andWhere('permissionId IN (:...pids)', { pids: permissionIds })
+      .where('RoleId = :rid', { rid: roleId })
+      .andWhere('PermissionId IN (:...pids)', { pids: permissionIds })
       .execute();
     return this.findOne(roleId);
   }

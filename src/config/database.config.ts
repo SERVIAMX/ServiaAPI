@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { PascalCaseNamingStrategy } from '../database/pascal-case-naming.strategy';
 
 export function createTypeOrmOptions(
   config: ConfigService,
@@ -13,6 +14,7 @@ export function createTypeOrmOptions(
     database: config.get<string>('DB_NAME', 'servia_api'),
     timezone: config.get<string>('DB_TIMEZONE', '-06:00'),
     charset: 'utf8mb4',
+    namingStrategy: new PascalCaseNamingStrategy(),
     synchronize: false,
     logging: config.get<string>('DB_LOGGING') === 'true',
     autoLoadEntities: true,

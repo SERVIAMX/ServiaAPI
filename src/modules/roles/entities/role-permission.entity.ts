@@ -10,7 +10,7 @@ import { bigintTransformer } from '../../../common/transformers/bigint.transform
 import { Permission } from './permission.entity';
 import { Role } from './role.entity';
 
-@Entity('role_permissions')
+@Entity({ name: 'RolePermissions' })
 export class RolePermission {
   @PrimaryGeneratedColumn({
     type: 'bigint',
@@ -22,14 +22,14 @@ export class RolePermission {
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   })
-  @JoinColumn({ name: 'roleId' })
+  @JoinColumn({ name: 'RoleId' })
   role: Role;
 
   @ManyToOne(() => Permission, (p) => p.rolePermissions, {
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   })
-  @JoinColumn({ name: 'permissionId' })
+  @JoinColumn({ name: 'PermissionId' })
   permission: Permission;
 
   @CreateDateColumn({

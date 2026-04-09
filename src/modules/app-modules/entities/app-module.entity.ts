@@ -9,7 +9,7 @@ import {
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
 import { Permission } from '../../roles/entities/permission.entity';
 
-@Entity('app_modules')
+@Entity({ name: 'AppModules' })
 export class AppModuleEntity {
   @PrimaryGeneratedColumn({
     type: 'bigint',

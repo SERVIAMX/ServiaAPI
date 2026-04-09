@@ -12,7 +12,7 @@ import {
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
 import { RolePermission } from './role-permission.entity';
 
-@Entity('roles')
+@Entity({ name: 'Roles' })
 export class Role {
   @PrimaryGeneratedColumn({
     type: 'bigint',

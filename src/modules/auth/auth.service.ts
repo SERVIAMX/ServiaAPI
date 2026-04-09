@@ -50,8 +50,8 @@ export class AuthService {
 
     const tokens = await this.issueTokens(user, ip, userAgent);
     return {
-      ...tokens,
-      user: this.sanitizeUser(user),
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
     };
   }
 
@@ -123,9 +123,8 @@ export class AuthService {
       await queryRunner.commitTransaction();
 
       return {
-        accessToken,
+        token: accessToken,
         refreshToken: newRefreshPlain,
-        user: this.sanitizeUser(user),
       };
     } catch (e) {
       await queryRunner.rollbackTransaction();
@@ -133,6 +132,38 @@ export class AuthService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  async me(userId: number) {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: { client: true, role: true },
+    });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Usuario no disponible');
+    }
+    if (!user.isActive) {
+      throw new UnauthorizedException('Usuario inactivo');
+    }
+    return {
+      ...this.sanitizeUser(user),
+      client: user.client
+        ? {
+            id: user.client.id,
+            businessName: user.client.businessName,
+            tradeName: user.client.tradeName,
+            email: user.client.email,
+            isActive: user.client.isActive,
+          }
+        : null,
+      role: user.role
+        ? {
+            id: user.role.id,
+            name: user.role.name,
+            isActive: user.role.isActive,
+          }
+        : null,
+    };
   }
 
   async logout(userId: number, refreshTokenPlain: string) {
@@ -211,7 +242,7 @@ export class AuthService {
         .createQueryBuilder()
         .update(RefreshToken)
         .set({ isRevoked: 1 })
-        .where('userId = :id', { id: target.id })
+        .where('UserId = :id', { id: target.id })
         .execute();
 
       await queryRunner.commitTransaction();
