@@ -9,7 +9,6 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AppModulesModule } from './modules/app-modules/app-modules.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { HealthModule } from './modules/health/health.module';
-import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 import { ProductosModule } from './modules/productos/productos.module';
 import { Role } from './modules/roles/entities/role.entity';
 import { RolesModule } from './modules/roles/roles.module';
@@ -33,7 +32,6 @@ import { UsersModule } from './modules/users/users.module';
     RolesModule,
     AppModulesModule,
     HealthModule,
-    NotificacionesModule,
     ProductosModule,
   ],
   providers: [
