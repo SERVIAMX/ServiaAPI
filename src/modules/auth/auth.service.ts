@@ -204,7 +204,7 @@ export class AuthService {
 
       try {
         await this.mailer.sendMail({
-          to: "luisnm93@gmail.com",
+          to: email,
           subject: 'Restablece tu contraseña — SERVIA',
           text:
             'Recibimos una solicitud para recuperar tu contraseña. ' +
