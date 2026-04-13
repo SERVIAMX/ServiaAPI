@@ -15,6 +15,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { LoginDto } from './dto/login.dto';
 import { JwtAccessPayload, JwtRefreshPayload } from '../../common/interfaces/jwt-payload.interface';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { buildPasswordResetEmailHtml } from './mail/password-reset-email.template';
 
 @Injectable()
 export class AuthService {
@@ -187,21 +188,29 @@ export class AuthService {
       const plain = uuidv4();
       const hash = await bcrypt.hash(plain, 10);
       user.resetPasswordToken = hash;
-      user.resetPasswordExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      const ttlMs = 15 * 60 * 1000;
+      user.resetPasswordExpiresAt = new Date(Date.now() + ttlMs);
       await this.userRepository.save(user);
 
-      const base = this.config.get<string>(
-        'APP_FRONTEND_URL',
-        'http://localhost:3001',
-      );
-      const link = `${base.replace(/\/$/, '')}/reset-password?token=${plain}`;
+      const base = this.config
+        .get<string>(
+          'APP_FRONTEND_URL',
+          'https://servia.mx/serviaapp/#/restaurar-contrasena?token=',
+        )
+        .trim()
+        .replace(/\?+$/, '');
+      const link = `${base}?token=${encodeURIComponent(plain)}`;
+      const html = buildPasswordResetEmailHtml(link);
 
       try {
         await this.mailer.sendMail({
-          to: email,
-          subject: 'Restablecer contraseña — ServiaAPI',
-          text: `Usa este enlace para restablecer tu contraseña (válido 1 hora): ${link}`,
-          html: `<p>Restablece tu contraseña haciendo clic <a href="${link}">aquí</a>.</p><p>El enlace expira en 1 hora.</p>`,
+          to: "luisnm93@gmail.com",
+          subject: 'Restablece tu contraseña — SERVIA',
+          text:
+            'Recibimos una solicitud para recuperar tu contraseña. ' +
+            `Abre este enlace en el navegador (válido 15 minutos): ${link}\n\n` +
+            'Si no solicitaste este cambio, ignora este mensaje.',
+          html,
         });
       } catch (err) {
         // No revelar fallo de correo al cliente

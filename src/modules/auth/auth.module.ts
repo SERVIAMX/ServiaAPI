@@ -33,8 +33,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
           port: config.get<number>('MAIL_PORT', 587),
           secure: false,
           auth: {
-            user: config.get<string>('MAIL_USER', ''),
-            pass: config.get<string>('MAIL_PASS', ''),
+            user: config.get<string>('MAIL_USER', 'serviasysmx@gmail.com'),
+            pass: config.get<string>('MAIL_PASS', 'gucejvyrjrolhzwa'),
           },
         },
         defaults: {
