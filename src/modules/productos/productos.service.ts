@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomInt } from 'node:crypto';
 import type { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import type {
   MarcasListaPaginatedResponse,
@@ -14,6 +15,7 @@ import type {
   ProductoServicioDto,
   ProductoVentaSeleccionDto,
 } from './productos.types';
+import type { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
 import type { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
 
 interface MovivendorLoginData {
@@ -336,6 +338,11 @@ export class ProductosService {
     return typeof v === 'string' ? v.trim() : v;
   }
 
+  /** Correlación numérica de 12 dígitos para consulta de saldo (Movivendor `id`). */
+  private generarIdConsultaSaldo12(): string {
+    return randomInt(0, 1_000_000_000_000).toString().padStart(12, '0');
+  }
+
   /**
    * Obtiene token de sesión en Movivendor (no expuesto vía HTTP).
    */
@@ -566,6 +573,71 @@ export class ProductosService {
         isRecord(json) && typeof json.message === 'string'
           ? json.message
           : `Movivendor venta HTTP ${res.status}`;
+      throw new BadGatewayException(msg);
+    }
+
+    return json;
+  }
+
+  /**
+   * POST Movivendor `query/tx` (consultar saldo externo): token por login interno; el cliente no envía token.
+   */
+  async consultarSaldoExterno(
+    dto: ConsultarSaldoExternoDto,
+  ): Promise<unknown> {
+    const url = this.cfg('MOVIVENDOR_CONSULTAR_SALDO_EXTERNO');
+    if (!url) {
+      throw new InternalServerErrorException(
+        'Falta MOVIVENDOR_CONSULTAR_SALDO_EXTERNO en configuración',
+      );
+    }
+
+    const token = await this.loginMovivendor();
+    const terminal =
+      dto.terminal?.trim() || this.cfg('MOVIVENDOR_TERMINAL') || '';
+    if (!terminal) {
+      throw new InternalServerErrorException(
+        'Falta terminal: envíalo en el body o define MOVIVENDOR_TERMINAL',
+      );
+    }
+
+    const payload = {
+      token,
+      id: this.generarIdConsultaSaldo12(),
+      terminal,
+      product: dto.product,
+      subprod: dto.subprod,
+      destination: dto.destination,
+      amount: dto.amount,
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new BadGatewayException(
+        'No se pudo conectar con Movivendor (consultar saldo externo)',
+      );
+    }
+
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      throw new BadGatewayException(
+        'Respuesta inválida de Movivendor (consultar saldo externo)',
+      );
+    }
+
+    if (!res.ok) {
+      const msg =
+        isRecord(json) && typeof json.message === 'string'
+          ? json.message
+          : `Movivendor consultar saldo externo HTTP ${res.status}`;
       throw new BadGatewayException(msg);
     }
 

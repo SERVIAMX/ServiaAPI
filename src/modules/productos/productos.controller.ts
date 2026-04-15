@@ -4,6 +4,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
 import { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
 import { ProductosMarcasBuscarQueryDto } from './dto/productos-marcas-buscar-query.dto';
 import { ProductosMarcasQueryDto } from './dto/productos-marcas-query.dto';
@@ -62,5 +63,15 @@ export class ProductosController {
   })
   ejecutarVenta(@Body() dto: EjecutarVentaDto) {
     return this.productosService.ejecutarVenta(dto);
+  }
+
+  @Post('consultar-saldo-externo')
+  @ApiOperation({
+    summary: 'Consultar saldo externo (Movivendor query/tx)',
+    description:
+      'Envía POST a `MOVIVENDOR_CONSULTAR_SALDO_EXTERNO` con token por login en servidor. El `id` de correlación (12 dígitos numéricos) se genera en el servidor para cada petición. Body: `product`, `subprod`, `destination`, `amount`; `terminal` opcional si existe `MOVIVENDOR_TERMINAL` en `.env`.',
+  })
+  consultarSaldoExterno(@Body() dto: ConsultarSaldoExternoDto) {
+    return this.productosService.consultarSaldoExterno(dto);
   }
 }
