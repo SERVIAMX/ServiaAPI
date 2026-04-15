@@ -5,6 +5,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
+import { EstatusVentaDto } from './dto/estatus-venta.dto';
 import { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
 import { ProductosMarcasBuscarQueryDto } from './dto/productos-marcas-buscar-query.dto';
 import { ProductosMarcasQueryDto } from './dto/productos-marcas-query.dto';
@@ -63,6 +64,16 @@ export class ProductosController {
   })
   ejecutarVenta(@Body() dto: EjecutarVentaDto) {
     return this.productosService.ejecutarVenta(dto);
+  }
+
+  @Post('estatus-venta')
+  @ApiOperation({
+    summary: 'Estatus de venta (Movivendor check/tx)',
+    description:
+      'Envía POST a `MOVIVENDOR_ESTATUS_VENTA` con token por login en servidor. Body: `id`, `product`, `subprod`, `destination`, `amount`. El `terminal` se toma solo de `MOVIVENDOR_TERMINAL` en `.env` (no se envía en el body).',
+  })
+  estatusVenta(@Body() dto: EstatusVentaDto) {
+    return this.productosService.estatusVenta(dto);
   }
 
   @Post('consultar-saldo-externo')

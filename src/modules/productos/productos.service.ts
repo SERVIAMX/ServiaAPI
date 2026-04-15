@@ -16,6 +16,7 @@ import type {
   ProductoVentaSeleccionDto,
 } from './productos.types';
 import type { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
+import type { EstatusVentaDto } from './dto/estatus-venta.dto';
 import type { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
 
 interface MovivendorLoginData {
@@ -573,6 +574,68 @@ export class ProductosService {
         isRecord(json) && typeof json.message === 'string'
           ? json.message
           : `Movivendor venta HTTP ${res.status}`;
+      throw new BadGatewayException(msg);
+    }
+
+    return json;
+  }
+
+  /**
+   * POST Movivendor `check/tx` (estatus venta): token por login; `terminal` solo desde `MOVIVENDOR_TERMINAL`.
+   */
+  async estatusVenta(dto: EstatusVentaDto): Promise<unknown> {
+    const url = this.cfg('MOVIVENDOR_ESTATUS_VENTA');
+    if (!url) {
+      throw new InternalServerErrorException(
+        'Falta MOVIVENDOR_ESTATUS_VENTA en configuración',
+      );
+    }
+
+    const token = await this.loginMovivendor();
+    const terminal = this.cfg('MOVIVENDOR_TERMINAL') || '';
+    if (!terminal) {
+      throw new InternalServerErrorException(
+        'Falta MOVIVENDOR_TERMINAL en configuración',
+      );
+    }
+
+    const payload = {
+      token,
+      id: dto.id,
+      terminal,
+      product: dto.product,
+      subprod: dto.subprod,
+      destination: dto.destination,
+      amount: dto.amount,
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new BadGatewayException(
+        'No se pudo conectar con Movivendor (estatus venta)',
+      );
+    }
+
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      throw new BadGatewayException(
+        'Respuesta inválida de Movivendor (estatus venta)',
+      );
+    }
+
+    if (!res.ok) {
+      const msg =
+        isRecord(json) && typeof json.message === 'string'
+          ? json.message
+          : `Movivendor estatus venta HTTP ${res.status}`;
       throw new BadGatewayException(msg);
     }
 
