@@ -2,6 +2,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 import {
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -30,7 +31,43 @@ export class AuthService {
     private readonly dataSource: DataSource,
   ) {}
 
+  private readonly administratorRoleId = 1;
+
   async login(dto: LoginDto, ip?: string, userAgent?: string) {
+    const user = await this.validateLoginCredentials(dto);
+    if (user.role?.id === this.administratorRoleId) {
+      throw new ForbiddenException(
+        'Este usuario debe iniciar sesión por el portal de administración',
+      );
+    }
+    user.lastLoginAt = new Date();
+    await this.userRepository.save(user);
+
+    const tokens = await this.issueTokens(user, ip, userAgent);
+    return {
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+  }
+
+  async loginAdministrator(dto: LoginDto, ip?: string, userAgent?: string) {
+    const user = await this.validateLoginCredentials(dto);
+    if (user.role?.id !== this.administratorRoleId) {
+      throw new ForbiddenException(
+        'No tienes permiso para iniciar sesión como administrador',
+      );
+    }
+    user.lastLoginAt = new Date();
+    await this.userRepository.save(user);
+
+    const tokens = await this.issueTokens(user, ip, userAgent);
+    return {
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+  }
+
+  private async validateLoginCredentials(dto: LoginDto): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { email: dto.email },
       relations: { client: true, role: true },
@@ -45,15 +82,7 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
-
-    user.lastLoginAt = new Date();
-    await this.userRepository.save(user);
-
-    const tokens = await this.issueTokens(user, ip, userAgent);
-    return {
-      token: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-    };
+    return user;
   }
 
   async refresh(

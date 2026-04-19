@@ -26,13 +26,27 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  @ApiOperation({ summary: 'Iniciar sesión' })
+  @ApiOperation({
+    summary:
+      'Iniciar sesión (usuarios no administradores; RoleId = 1 debe usar login/administrator)',
+  })
   login(
     @Body() dto: LoginDto,
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string | undefined,
   ) {
     return this.authService.login(dto, ip, userAgent);
+  }
+
+  @Public()
+  @Post('login/administrator')
+  @ApiOperation({ summary: 'Iniciar sesión (solo rol administrador, RoleId = 1)' })
+  loginAdministrator(
+    @Body() dto: LoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+  ) {
+    return this.authService.loginAdministrator(dto, ip, userAgent);
   }
 
   @Public()
