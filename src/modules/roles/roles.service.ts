@@ -108,9 +108,9 @@ export class RolesService {
     if (!role || role.deletedAt) {
       throw new NotFoundException('Rol no encontrado');
     }
-    if (role.isSystem) {
+    /*if (role.isSystem) {
       throw new BadRequestException('No se puede eliminar un rol de sistema');
-    }
+    }¨*/
     await this.roleRepository.softRemove(role);
     return { deleted: true };
   }
