@@ -7,6 +7,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { createTypeOrmOptions } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { AppModulesModule } from './modules/app-modules/app-modules.module';
+import { BalanceModule } from './modules/balance/balance.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProductosModule } from './modules/productos/productos.module';
@@ -33,6 +34,7 @@ import { UsersModule } from './modules/users/users.module';
     AppModulesModule,
     HealthModule,
     ProductosModule,
+    BalanceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

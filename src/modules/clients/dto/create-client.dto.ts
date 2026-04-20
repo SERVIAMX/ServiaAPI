@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
   Matches,
+  Min,
 } from 'class-validator';
 
 export class CreateClientDto {
@@ -78,4 +80,14 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Balance de crédito inicial para el cliente. Si no se envía, inicia en 0.',
+    example: 0,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  creditBalance?: number;
 }

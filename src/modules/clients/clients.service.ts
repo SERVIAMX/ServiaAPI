@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { Client } from './entities/client.entity';
+import { CustomerBalance } from './entities/customer-balance.entity';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { FilterClientDto } from './dto/filter-client.dto';
@@ -14,16 +15,39 @@ export class ClientsService {
     private readonly clientRepository: Repository<Client>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(CustomerBalance)
+    private readonly customerBalanceRepository: Repository<CustomerBalance>,
     private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateClientDto) {
+    const { creditBalance, ...clientDto } = dto;
+
     const client = this.clientRepository.create({
-      ...dto,
+      ...clientDto,
       country: dto.country ?? 'México',
       isActive: 1,
     });
-    return this.clientRepository.save(client);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const savedClient = await queryRunner.manager.save(Client, client);
+      const balance = this.customerBalanceRepository.create({
+        customer: savedClient,
+        creditBalance: (creditBalance ?? 0).toFixed(2),
+      });
+      await queryRunner.manager.save(CustomerBalance, balance);
+
+      await queryRunner.commitTransaction();
+      return savedClient;
+    } catch (e) {
+      await queryRunner.rollbackTransaction();
+      throw e;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async findAll(filter: FilterClientDto) {
