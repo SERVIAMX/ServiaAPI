@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomInt } from 'node:crypto';
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -131,6 +132,11 @@ export class BalanceService {
 
     if (balance === null) {
       throw new BadGatewayException('Respuesta inválida de Movivendor (balance)');
+    }
+
+    // Temporal: si el proveedor devuelve 0, exponer un saldo aleatorio para pruebas
+    if (balance === 0) {
+      return { balance: randomInt(100, 100_000) };
     }
 
     return { balance };
