@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { Client } from './entities/client.entity';
+import { BalanceHistory } from './entities/balance-history.entity';
 import { CustomerBalance } from './entities/customer-balance.entity';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
@@ -17,28 +18,86 @@ export class ClientsService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(CustomerBalance)
     private readonly customerBalanceRepository: Repository<CustomerBalance>,
+    @InjectRepository(BalanceHistory)
+    private readonly balanceHistoryRepository: Repository<BalanceHistory>,
     private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateClientDto) {
-    const { creditBalance, ...clientDto } = dto;
+    const { creditBalance, creditLine, amount, requiresCredit, ...clientDto } =
+      dto;
+
+    const amountVal = amount ?? 0;
+    const creditBalVal = creditBalance ?? 0;
+
+    if (requiresCredit) {
+      if (creditBalVal <= 0) {
+        throw new BadRequestException(
+          'RequiresCredit=true requiere CreditBalance > 0',
+        );
+      }
+      if (creditLine === undefined || creditLine === null) {
+        throw new BadRequestException(
+          'RequiresCredit=true requiere CreditLine (límite de crédito)',
+        );
+      }
+      if (creditBalVal > creditLine) {
+        throw new BadRequestException(
+          'CreditBalance no puede ser mayor a CreditLine',
+        );
+      }
+    } else {
+      if (amountVal <= 0) {
+        throw new BadRequestException(
+          'RequiresCredit=false requiere Amount > 0',
+        );
+      }
+    }
 
     const client = this.clientRepository.create({
       ...clientDto,
       country: dto.country ?? 'México',
       isActive: 1,
+      creditLine: creditLine === undefined ? null : creditLine.toFixed(2),
     });
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
-      const savedClient = await queryRunner.manager.save(Client, client);
+      const savedClient = await queryRunner.manager.save(client);
+
       const balance = this.customerBalanceRepository.create({
         customer: savedClient,
-        creditBalance: (creditBalance ?? 0).toFixed(2),
+        creditBalance: requiresCredit ? creditBalVal.toFixed(2) : '0.00',
+        balance: amountVal > 0 ? amountVal.toFixed(2) : '0.00',
       });
-      await queryRunner.manager.save(CustomerBalance, balance);
+      await queryRunner.manager.save(balance);
+
+      const historyToInsert: BalanceHistory[] = [];
+      if (creditBalVal > 0) {
+        historyToInsert.push(
+          this.balanceHistoryRepository.create({
+            customer: savedClient,
+            amount: creditBalVal.toFixed(2),
+            transactionType: 2,
+            isPaid: 0,
+          }),
+        );
+      }
+      if (amountVal > 0) {
+        historyToInsert.push(
+          this.balanceHistoryRepository.create({
+            customer: savedClient,
+            amount: amountVal.toFixed(2),
+            transactionType: 1,
+            isPaid: 1,
+          }),
+        );
+      }
+      for (const h of historyToInsert) {
+        await queryRunner.manager.save(h);
+      }
 
       await queryRunner.commitTransaction();
       return savedClient;

@@ -77,4 +77,12 @@ export class Client {
   @Exclude()
   @ApiHideProperty()
   deletedAt: Date | null;
+
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  creditLine: string | null;
 }

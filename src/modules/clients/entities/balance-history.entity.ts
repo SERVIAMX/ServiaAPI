@@ -5,13 +5,12 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
-  UpdateDateColumn,
 } from 'typeorm';
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
 import { Client } from './client.entity';
 
-@Entity({ name: 'CustomerBalance' })
-export class CustomerBalance {
+@Entity({ name: 'BalanceHistory' })
+export class BalanceHistory {
   @PrimaryGeneratedColumn({
     type: 'bigint',
     transformer: bigintTransformer,
@@ -24,29 +23,34 @@ export class CustomerBalance {
 
   @Column({
     type: 'decimal',
-    precision: 12,
-    scale: 2,
-    default: 0,
-  })
-  creditBalance: string;
-
-  @Column({
-    type: 'decimal',
     precision: 10,
     scale: 2,
-    default: 0,
+    nullable: true,
   })
-  balance: string;
+  amount: string | null;
 
   @CreateDateColumn({
     type: 'datetime',
-    comment: 'Fecha de registro (CST México)',
+    name: 'FHRegistro',
+    nullable: true,
+    default: () => 'CURRENT_TIMESTAMP',
   })
-  createdAt: Date;
+  fhRegistro: Date | null;
 
-  @UpdateDateColumn({
-    type: 'datetime',
-    comment: 'Fecha de última actualización (CST México)',
+  /**
+   * 1 = Pagado
+   * 2 = Crédito
+   */
+  @Column({
+    type: 'tinyint',
+    nullable: true,
   })
-  updatedAt: Date;
+  transactionType: number | null;
+
+  @Column({
+    type: 'tinyint',
+    nullable: true,
+  })
+  isPaid: number | null;
 }
+

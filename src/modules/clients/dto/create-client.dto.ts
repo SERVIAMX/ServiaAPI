@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEmail,
   IsNumber,
   IsOptional,
@@ -80,6 +81,34 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiProperty({
+    description:
+      'Si es true, el cliente requiere crédito (debe enviar CreditBalance > 0). Si es false, debe enviar Amount > 0.',
+    example: true,
+  })
+  @IsBoolean()
+  requiresCredit: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Monto pagado inicial. Requerido si RequiresCredit = false. Si se envía > 0, se registra en BalanceHistory como type 1.',
+    example: 200,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  amount?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Línea de crédito máxima permitida para el cliente. CreditBalance no puede ser mayor a CreditLine.',
+    example: 1000,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  creditLine?: number;
 
   @ApiPropertyOptional({
     description:
