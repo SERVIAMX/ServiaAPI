@@ -111,6 +111,24 @@ export class CreateClientDto {
   creditLine?: number;
 
   @ApiPropertyOptional({
+    description: 'Porcentaje de descuento para el cliente (ej. 10.50).',
+    example: 10.5,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  discountPercentage?: number;
+
+  @ApiPropertyOptional({
+    description: 'Porcentaje de comisión para el cliente (ej. 3.25).',
+    example: 3.25,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  commissionPercentage?: number;
+
+  @ApiPropertyOptional({
     description:
       'Balance de crédito inicial para el cliente. Si no se envía, inicia en 0.',
     example: 0,

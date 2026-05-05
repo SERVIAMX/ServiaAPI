@@ -4,7 +4,9 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'node:crypto';
+import { Repository } from 'typeorm';
 import type { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import type {
   MarcasListaPaginatedResponse,
@@ -18,6 +20,7 @@ import type {
 import type { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
 import type { EstatusVentaDto } from './dto/estatus-venta.dto';
 import type { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
+import { Transaction } from '../transactions/entities/transaction.entity';
 
 interface MovivendorLoginData {
   token: string;
@@ -332,7 +335,11 @@ function sliceMarcasPerTipo(
 
 @Injectable()
 export class ProductosService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @InjectRepository(Transaction)
+    private readonly txRepo: Repository<Transaction>,
+  ) {}
 
   private cfg(key: string): string | undefined {
     const v = this.config.get<string>(key);
@@ -524,7 +531,10 @@ export class ProductosService {
   /**
    * POST Movivendor `do/tx`: token por login interno; el cliente no envía token.
    */
+
+  
   async ejecutarVenta(dto: EjecutarVentaDto): Promise<unknown> {
+    console.log('ejecutarVenta', dto);
     const url = this.cfg('MOVIVENDOR_VENTA');
     if (!url) {
       throw new InternalServerErrorException(
@@ -575,6 +585,21 @@ export class ProductosService {
           ? json.message
           : `Movivendor venta HTTP ${res.status}`;
       throw new BadGatewayException(msg);
+    }
+
+    // Si viene idTransaction, actualiza code y ResponseProvider en Transactions
+    if (dto.idTransaction !== undefined && dto.idTransaction !== null) {
+      const code =
+        isRecord(json) && typeof json.code === 'number'
+          ? String(json.code)
+          : '';
+      await this.txRepo.update(
+        { idTransaction: dto.idTransaction },
+        {
+          ...(code ? { code } : {}),
+          responseProvider: json as any,
+        },
+      );
     }
 
     return json;

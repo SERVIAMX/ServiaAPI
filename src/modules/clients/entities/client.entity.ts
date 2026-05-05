@@ -85,4 +85,20 @@ export class Client {
     nullable: true,
   })
   creditLine: string | null;
+
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  discountPercentage: string | null;
+
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  commissionPercentage: string | null;
 }

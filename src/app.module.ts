@@ -13,6 +13,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ProductosModule } from './modules/productos/productos.module';
 import { Role } from './modules/roles/entities/role.entity';
 import { RolesModule } from './modules/roles/roles.module';
+import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -35,6 +36,7 @@ import { UsersModule } from './modules/users/users.module';
     HealthModule,
     ProductosModule,
     BalanceModule,
+    TransactionsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

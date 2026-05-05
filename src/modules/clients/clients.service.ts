@@ -24,8 +24,15 @@ export class ClientsService {
   ) {}
 
   async create(dto: CreateClientDto) {
-    const { creditBalance, creditLine, amount, requiresCredit, ...clientDto } =
-      dto;
+    const {
+      creditBalance,
+      creditLine,
+      discountPercentage,
+      commissionPercentage,
+      amount,
+      requiresCredit,
+      ...clientDto
+    } = dto;
 
     const amountVal = amount ?? 0;
     const creditBalVal = creditBalance ?? 0;
@@ -59,6 +66,12 @@ export class ClientsService {
       country: dto.country ?? 'México',
       isActive: 1,
       creditLine: creditLine === undefined ? null : creditLine.toFixed(2),
+      discountPercentage:
+        discountPercentage === undefined ? null : discountPercentage.toFixed(2),
+      commissionPercentage:
+        commissionPercentage === undefined
+          ? null
+          : commissionPercentage.toFixed(2),
     });
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -194,7 +207,26 @@ export class ClientsService {
 
   async update(id: number, dto: UpdateClientDto) {
     const client = await this.findOne(id);
-    Object.assign(client, dto);
+
+    const { creditLine, discountPercentage, commissionPercentage, ...rest } = dto as UpdateClientDto & {
+      creditLine?: number | null;
+      discountPercentage?: number | null;
+      commissionPercentage?: number | null;
+    };
+
+    Object.assign(client, rest);
+    if (creditLine !== undefined) {
+      client.creditLine = creditLine === null ? null : creditLine.toFixed(2);
+    }
+    if (discountPercentage !== undefined) {
+      client.discountPercentage =
+        discountPercentage === null ? null : discountPercentage.toFixed(2);
+    }
+    if (commissionPercentage !== undefined) {
+      client.commissionPercentage =
+        commissionPercentage === null ? null : commissionPercentage.toFixed(2);
+    }
+
     return this.clientRepository.save(client);
   }
 

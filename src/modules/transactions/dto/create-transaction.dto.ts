@@ -1,56 +1,59 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
-export class EjecutarVentaDto {
-  @ApiPropertyOptional({
-    description:
-      'IdTransaction interno para actualizar Transactions.code con el code de Movivendor',
-    example: 123,
-  })
-  @IsOptional()
-  idTransaction?: number;
-
+export class CreateTransactionDto {
   @ApiProperty({
-    example: '999999000000000001',
-    description: 'Identificador de la transacción (negocio / correlación)',
+    description: 'Tipo de transacción (ej. tiempo_aire)',
+    example: 'tiempo_aire',
   })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  id!: string;
+  tipo!: string;
 
-  @ApiProperty({ example: 'A', description: 'SKU del producto (ej. oferta `service_sku`)' })
+  @ApiProperty({ example: 'GFREEDOM' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   product!: string;
 
-  @ApiProperty({ example: '0', description: 'Subproducto Movivendor' })
+  @ApiProperty({ example: '0' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : String(value)))
   @IsString()
   @IsNotEmpty()
   subprod!: string;
 
-  @ApiProperty({ example: '55909058012', description: 'Número destino (10 dígitos según producto)' })
+  @ApiProperty({ example: '1234567891' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   destination!: string;
 
-  @ApiProperty({ example: '10', description: 'Monto de la recarga' })
+  @ApiProperty({ example: '30' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : String(value)))
   @IsString()
   @IsNotEmpty()
   amount!: string;
 
   @ApiPropertyOptional({
-    description:
-      'Terminal Movivendor; si se omite se usa `MOVIVENDOR_TERMINAL` del servidor',
-    example: 'rdev1',
+    description: 'URL/Path del logo del producto para guardar en Transactions',
+    example: 'https://cdn.example.com/logo.png',
   })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsOptional()
   @IsString()
-  terminal?: string;
+  @MaxLength(500)
+  logo?: string;
+
+  @ApiPropertyOptional({
+    description: 'Marca (ej. Telcel) para guardar en Transactions',
+    example: 'Telcel',
+  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsOptional()
+  @IsString()
+  @MaxLength(90)
+  brand?: string;
 }
+
