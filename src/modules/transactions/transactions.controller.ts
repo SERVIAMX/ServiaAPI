@@ -17,6 +17,7 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { Public } from '../../common/decorators/public.decorator';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
 import { TransactionByExternalIdDto } from './dto/transaction-by-external-id.dto';
@@ -26,13 +27,13 @@ import { TransactionsService } from './transactions.service';
 type AuthUser = { userId: number; clientId: number };
 
 @ApiTags('transactions')
-@ApiBearerAuth()
 @ApiExtraModels(TransactionListItemDto, TransactionByExternalIdDto)
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Get()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Listar transacciones del usuario autenticado',
     description:
@@ -70,10 +71,11 @@ export class TransactionsController {
   }
 
   @Get('external/:externalId')
+  @Public()
   @ApiOperation({
     summary: 'Obtener transacción por ExternalId',
     description:
-      'Busca por ExternalId dentro de las transacciones del usuario autenticado. Regresa un solo objeto con tipoCobro/isCredit y recargaEstado.',
+      'Endpoint público: busca por ExternalId. Regresa un solo objeto con tipoCobro/isCredit y recargaEstado.',
   })
   @ApiOkResponse({
     description: 'Respuesta estándar: data incluye tipoCobro y isCredit',
@@ -87,14 +89,12 @@ export class TransactionsController {
       },
     },
   })
-  findByExternalId(@Req() req: Request, @Param('externalId') externalId: string) {
-    const authUser = req.user as AuthUser | undefined;
-    const userId = authUser?.userId;
-    if (!userId) throw new UnauthorizedException('Usuario no autenticado');
-    return this.transactionsService.findByUserAndExternalId(userId, externalId);
+  findByExternalId(@Param('externalId') externalId: string) {
+    return this.transactionsService.findByExternalId(externalId);
   }
 
   @Post()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'CreateTransaction',
     description:
