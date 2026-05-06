@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiExtraModels,
@@ -10,6 +19,7 @@ import {
 import type { Request } from 'express';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
+import { TransactionByExternalIdDto } from './dto/transaction-by-external-id.dto';
 import { TransactionListItemDto } from './dto/transaction-list-item.dto';
 import { TransactionsService } from './transactions.service';
 
@@ -17,7 +27,7 @@ type AuthUser = { userId: number; clientId: number };
 
 @ApiTags('transactions')
 @ApiBearerAuth()
-@ApiExtraModels(TransactionListItemDto)
+@ApiExtraModels(TransactionListItemDto, TransactionByExternalIdDto)
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
@@ -57,6 +67,31 @@ export class TransactionsController {
     const userId = authUser?.userId;
     if (!userId) throw new UnauthorizedException('Usuario no autenticado');
     return this.transactionsService.findByUserAndDateRange(userId, filter);
+  }
+
+  @Get('external/:externalId')
+  @ApiOperation({
+    summary: 'Obtener transacción por ExternalId',
+    description:
+      'Busca por ExternalId dentro de las transacciones del usuario autenticado. Regresa un solo objeto con tipoCobro/isCredit y recargaEstado.',
+  })
+  @ApiOkResponse({
+    description: 'Respuesta estándar: data incluye tipoCobro y isCredit',
+    schema: {
+      properties: {
+        success: { type: 'boolean', example: true },
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'Operación exitosa' },
+        timestamp: { type: 'string' },
+        data: { $ref: getSchemaPath(TransactionByExternalIdDto) },
+      },
+    },
+  })
+  findByExternalId(@Req() req: Request, @Param('externalId') externalId: string) {
+    const authUser = req.user as AuthUser | undefined;
+    const userId = authUser?.userId;
+    if (!userId) throw new UnauthorizedException('Usuario no autenticado');
+    return this.transactionsService.findByUserAndExternalId(userId, externalId);
   }
 
   @Post()

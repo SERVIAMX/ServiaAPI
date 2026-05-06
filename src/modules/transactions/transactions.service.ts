@@ -134,6 +134,38 @@ export class TransactionsService {
     };
   }
 
+  async findByUserAndExternalId(userId: number, externalId: string) {
+    if (!userId) throw new UnauthorizedException('Usuario no autenticado');
+
+    const ext = String(externalId ?? '').trim();
+    if (!/^\d+$/.test(ext) || ext.length > 20) {
+      throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
+    }
+
+    const t = await this.txRepo.findOne({
+      where: { externalId: ext, user: { id: userId } },
+    });
+    if (!t) throw new NotFoundException('Transacción no encontrada');
+
+    const isCredit = normalizeIsCredit(t.isCredit);
+    const tipoCobro = tipoCobroFromIsCredit(isCredit);
+    return {
+      idTransaction: t.idTransaction,
+      tipoCobro,
+      isCredit,
+      fhRegister: t.fhRegister,
+      externalId: t.externalId,
+      amount: t.amount,
+      code: t.code,
+      recargaEstado: recargaEstadoFromCode(t.code),
+      sku: t.sku,
+      logo: t.logo,
+      fhUpdate: t.fhUpdate,
+      destination: t.destination,
+      brand: t.brand,
+    };
+  }
+
   async createTransaction(authUser: { userId: number; clientId: number }, dto: CreateTransactionDto) {
     const user = await this.userRepo.findOne({
       where: { id: authUser.userId },
