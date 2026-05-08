@@ -134,6 +134,54 @@ export class TransactionsService {
     };
   }
 
+  async findByDateRange(filter: FilterTransactionsDto) {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 10;
+    const from = parseRangeStart(filter.from);
+    const to = parseRangeEnd(filter.to);
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException('El rango de fechas es inválido (from > to)');
+    }
+
+    const [rows, total] = await this.txRepo.findAndCount({
+      where: { fhRegister: Between(from, to) },
+      order: { idTransaction: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const data = rows.map((t) => {
+      const isCredit = normalizeIsCredit(t.isCredit);
+      const tipoCobro = tipoCobroFromIsCredit(isCredit);
+      return {
+        idTransaction: t.idTransaction,
+        tipoCobro,
+        isCredit,
+        fhRegister: t.fhRegister,
+        externalId: t.externalId,
+        amount: t.amount,
+        code: t.code,
+        recargaEstado: recargaEstadoFromCode(t.code),
+        sku: t.sku,
+        logo: t.logo,
+        fhUpdate: t.fhUpdate,
+        netAmount: t.netAmount,
+        destination: t.destination,
+        brand: t.brand,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
   async findByUserAndExternalId(userId: number, externalId: string) {
     if (!userId) throw new UnauthorizedException('Usuario no autenticado');
 

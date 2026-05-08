@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -24,13 +25,52 @@ import { TransactionByExternalIdDto } from './dto/transaction-by-external-id.dto
 import { TransactionListItemDto } from './dto/transaction-list-item.dto';
 import { TransactionsService } from './transactions.service';
 
-type AuthUser = { userId: number; clientId: number };
+type AuthUser = { userId: number; clientId: number; roleId?: number };
 
 @ApiTags('transactions')
 @ApiExtraModels(TransactionListItemDto, TransactionByExternalIdDto)
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
+
+  @Get('all')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar todas las transacciones (sin filtrar por usuario)',
+    description:
+      'Paginado. Filtra únicamente por rango de fechas sobre FHRegister (from / to). Cada ítem incluye `isCredit` (0=Pagado, 1=Crédito) y `tipoCobro` (texto).',
+  })
+  @ApiOkResponse({
+    description: 'Respuesta estándar: data[] incluye tipoCobro y isCredit',
+    schema: {
+      properties: {
+        success: { type: 'boolean', example: true },
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'Operación exitosa' },
+        timestamp: { type: 'string' },
+        data: {
+          type: 'array',
+          items: { $ref: getSchemaPath(TransactionListItemDto) },
+        },
+        meta: {
+          type: 'object',
+          properties: {
+            total: { type: 'number' },
+            page: { type: 'number' },
+            limit: { type: 'number' },
+            totalPages: { type: 'number' },
+          },
+        },
+      },
+    },
+  })
+  findAllNoUser(@Req() req: Request, @Query() filter: FilterTransactionsDto) {
+    const authUser = req.user as AuthUser | undefined;
+    if (authUser?.roleId !== 1) {
+      throw new ForbiddenException('Solo rol 1 puede consultar este recurso');
+    }
+    return this.transactionsService.findByDateRange(filter);
+  }
 
   @Get()
   @ApiBearerAuth()
