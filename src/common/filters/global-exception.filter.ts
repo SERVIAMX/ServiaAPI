@@ -27,6 +27,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Error interno del servidor';
+    let data: unknown = null;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -39,6 +40,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
               ? (res as { message: string[] }).message.join(', ')
               : String((res as { message: string }).message)
             : exception.message;
+      if (
+        res &&
+        typeof res === 'object' &&
+        'data' in (res as Record<string, unknown>) &&
+        (res as Record<string, unknown>).data !== undefined
+      ) {
+        data = (res as Record<string, unknown>).data;
+      }
     } else if (exception instanceof UnauthorizedException) {
       status = HttpStatus.UNAUTHORIZED;
       message = exception.message || 'No autorizado';
@@ -84,7 +93,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       success: false,
       statusCode: status,
       message,
-      data: null,
+      data,
       timestamp: new Date().toISOString(),
     };
 

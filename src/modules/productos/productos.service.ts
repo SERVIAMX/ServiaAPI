@@ -1,7 +1,9 @@
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -335,6 +337,8 @@ function sliceMarcasPerTipo(
 
 @Injectable()
 export class ProductosService {
+  private readonly logger = new Logger(ProductosService.name);
+
   constructor(
     private readonly config: ConfigService,
     @InjectRepository(Transaction)
@@ -673,17 +677,32 @@ export class ProductosService {
   async consultarSaldoExterno(
     dto: ConsultarSaldoExternoDto,
   ): Promise<unknown> {
+    const tag = '[consultarSaldoExterno]';
+    this.logger.log(`${tag} DTO recibido: ${JSON.stringify(dto)}`);
+
     const url = this.cfg('MOVIVENDOR_CONSULTAR_SALDO_EXTERNO');
     if (!url) {
+      this.logger.error(
+        `${tag} Falta variable MOVIVENDOR_CONSULTAR_SALDO_EXTERNO`,
+      );
       throw new InternalServerErrorException(
         'Falta MOVIVENDOR_CONSULTAR_SALDO_EXTERNO en configuración',
       );
     }
+    this.logger.log(`${tag} URL destino: ${url}`);
 
     const token = await this.loginMovivendor();
+    console.log('token', token);
+    // this.logger.log(
+    //   `${tag} Token Movivendor obtenido (len=${token.length}, prefix=${token.slice(0, 8)}...)`,
+    // );
+
     const terminal =
       dto.terminal?.trim() || this.cfg('MOVIVENDOR_TERMINAL') || '';
     if (!terminal) {
+      this.logger.error(
+        `${tag} Falta terminal en body y MOVIVENDOR_TERMINAL no está definido`,
+      );
       throw new InternalServerErrorException(
         'Falta terminal: envíalo en el body o define MOVIVENDOR_TERMINAL',
       );
@@ -698,7 +717,12 @@ export class ProductosService {
       destination: dto.destination,
       amount: dto.amount,
     };
+    const { token: _omit, ...payloadSafe } = payload;
+    this.logger.log(
+      `${tag} Payload enviado a Movivendor: ${JSON.stringify(payloadSafe)}`,
+    );
 
+    const startedAt = Date.now();
     let res: Response;
     try {
       res = await fetch(url, {
@@ -706,27 +730,63 @@ export class ProductosService {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(payload),
       });
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `${tag} Error de conexión con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
+      );
       throw new BadGatewayException(
         'No se pudo conectar con Movivendor (consultar saldo externo)',
       );
     }
+    this.logger.log(
+      `${tag} Respuesta HTTP de Movivendor: status=${res.status} ok=${res.ok} elapsed=${Date.now() - startedAt}ms`,
+    );
 
+    let rawText = '';
     let json: unknown;
     try {
-      json = await res.json();
-    } catch {
+      rawText = await res.text();
+      json = rawText ? JSON.parse(rawText) : null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `${tag} Respuesta no parseable como JSON. Error=${msg} | raw=${rawText.slice(0, 1000)}`,
+      );
       throw new BadGatewayException(
         'Respuesta inválida de Movivendor (consultar saldo externo)',
       );
     }
+    this.logger.log(
+      `${tag} JSON Movivendor: ${JSON.stringify(json)}`,
+    );
 
     if (!res.ok) {
-      const msg =
+      const providerMsg =
         isRecord(json) && typeof json.message === 'string'
           ? json.message
-          : `Movivendor consultar saldo externo HTTP ${res.status}`;
-      throw new BadGatewayException(msg);
+          : `HTTP ${res.status}`;
+      this.logger.error(
+        `${tag} HTTP no OK (proveedor): ${providerMsg}`,
+      );
+      throw new ConflictException({
+        message: 'Servicio no disponible',
+        data: json,
+      });
+    }
+
+    if (isRecord(json) && typeof json.code === 'number' && json.code !== 0) {
+      const providerMsg =
+        typeof json.message === 'string' && json.message.trim()
+          ? json.message
+          : 'sin mensaje';
+      this.logger.warn(
+        `${tag} Proveedor rechazó la operación: code=${json.code} message=${providerMsg}`,
+      );
+      throw new ConflictException({
+        message: 'Servicio no disponible',
+        data: json,
+      });
     }
 
     return json;
