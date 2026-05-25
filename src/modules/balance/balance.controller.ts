@@ -6,6 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CurrentUserPayload } from '../../common/interfaces/current-user-payload.interface';
 import { AdjustCustomerBalanceDto } from './dto/adjust-customer-balance.dto';
 import { FilterBalanceHistoryDto } from './dto/filter-balance-history.dto';
+import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
 
 @ApiTags('Balance')
 @Controller('balance')
@@ -57,6 +58,38 @@ export class BalanceController {
     @Query() filter: FilterBalanceHistoryDto,
   ) {
     return this.balanceService.obtenerBalanceHistory(user.clientId, filter);
+  }
+
+  @Get('pending-payment-history')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Historial global pendiente de pago (solo Super Administrador / administración)',
+    description:
+      'Registros de `BalanceHistory` con `isPaid = 0` de todos los clientes. Incluye `customerId` y `cliente` (nombre comercial o razón social + id). Paginación y fechas opcionales como en `history`. Acceso: rol "Super Administrador", "Administrador" (nombre, sin distinguir mayúsculas) o `RoleId = 1` (portal administración).',
+  })
+  pendingPaymentHistoryGlobal(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() filter: FilterBalanceHistoryDto,
+  ) {
+    return this.balanceService.obtenerHistorialPendientePagoGlobal(
+      user.roleId,
+      filter,
+    );
+  }
+
+  @Post('mark-paid')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Marcar movimiento de balance como pagado (isPaid 0 → 1)',
+    description:
+      'Solo si el registro tiene `isPaid = 0`. Acceso: rol "Super Administrador", "Administrador" (nombre) o `RoleId = 1`.',
+  })
+  markBalanceHistoryPaid(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: MarkBalanceHistoryPaidDto,
+  ) {
+    return this.balanceService.marcarBalanceHistoryComoPagado(user.roleId, dto);
   }
 }
 

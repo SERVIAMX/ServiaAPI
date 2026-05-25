@@ -9,12 +9,14 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AppModulesModule } from './modules/app-modules/app-modules.module';
 import { BalanceModule } from './modules/balance/balance.module';
 import { ClientsModule } from './modules/clients/clients.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProductosModule } from './modules/productos/productos.module';
 import { Role } from './modules/roles/entities/role.entity';
 import { RolesModule } from './modules/roles/roles.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
+import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
 
 @Module({
   imports: [
@@ -36,7 +38,9 @@ import { UsersModule } from './modules/users/users.module';
     HealthModule,
     ProductosModule,
     BalanceModule,
+    DashboardModule,
     TransactionsModule,
+    WebhookMpModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

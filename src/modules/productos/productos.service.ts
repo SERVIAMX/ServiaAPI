@@ -692,10 +692,7 @@ export class ProductosService {
     this.logger.log(`${tag} URL destino: ${url}`);
 
     const token = await this.loginMovivendor();
-    console.log('token', token);
-    // this.logger.log(
-    //   `${tag} Token Movivendor obtenido (len=${token.length}, prefix=${token.slice(0, 8)}...)`,
-    // );
+ 
 
     const terminal =
       dto.terminal?.trim() || this.cfg('MOVIVENDOR_TERMINAL') || '';

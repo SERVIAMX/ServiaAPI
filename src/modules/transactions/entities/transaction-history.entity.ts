@@ -13,17 +13,8 @@ import { bigintTransformer } from '../../../common/transformers/bigint.transform
 import { tinyint01Transformer } from '../../../common/transformers/tinyint-01.transformer';
 import { User } from '../../users/entities/user.entity';
 
-export function recargaEstadoFromCode(
-  code: string | null | undefined,
-): 'exitosa' | 'fallida' | 'pendiente' {
-  const c = String(code ?? '').trim();
-  if (c === '') return 'pendiente';
-  if (c === '0' || Number(c) === 0) return 'exitosa';
-  return 'fallida';
-}
-
-@Entity({ name: 'Transactions' })
-export class Transaction {
+@Entity({ name: 'TransactionsHistory' })
+export class TransactionHistory {
   @PrimaryGeneratedColumn({
     type: 'bigint',
     name: 'IdTransaction',
@@ -52,7 +43,6 @@ export class Transaction {
   })
   amount: string;
 
-  /** Código proveedor: 0 = recarga exitosa; distinto de 0 = fallida. */
   @Column({ type: 'varchar', length: 5, default: '', name: 'Code' })
   code: string;
 
@@ -70,7 +60,6 @@ export class Transaction {
   @ApiHideProperty()
   responseProvider: unknown | null;
 
-  /** 0 = Pagado (Balance), 1 = Crédito (CreditBalance). */
   @Column({
     type: 'tinyint',
     nullable: true,
@@ -94,7 +83,6 @@ export class Transaction {
   @Column({ type: 'varchar', length: 90, nullable: true, name: 'Brand' })
   brand: string | null;
 
-  /** 1 = tiempo aire (tipo `tiempo_aire`), 0 = otro. */
   @Column({
     type: 'tinyint',
     nullable: true,
@@ -103,4 +91,3 @@ export class Transaction {
   })
   esTAE: number | null;
 }
-

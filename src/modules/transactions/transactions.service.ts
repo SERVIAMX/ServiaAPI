@@ -120,6 +120,7 @@ export class TransactionsService {
         netAmount: t.netAmount,
         destination: t.destination,
         brand: t.brand,
+        esTAE: normalizeIsCredit(t.esTAE),
       };
     });
 
@@ -168,6 +169,7 @@ export class TransactionsService {
         netAmount: t.netAmount,
         destination: t.destination,
         brand: t.brand,
+        esTAE: normalizeIsCredit(t.esTAE),
       };
     });
 
@@ -211,6 +213,7 @@ export class TransactionsService {
       fhUpdate: t.fhUpdate,
       destination: t.destination,
       brand: t.brand,
+      esTAE: normalizeIsCredit(t.esTAE),
     };
   }
 
@@ -239,6 +242,7 @@ export class TransactionsService {
       fhUpdate: t.fhUpdate,
       destination: t.destination,
       brand: t.brand,
+      esTAE: normalizeIsCredit(t.esTAE),
     };
   }
 
@@ -269,6 +273,7 @@ export class TransactionsService {
 
     const tipo = dto.tipo?.trim().toLowerCase() ?? '';
     const isTiempoAire = tipo === 'tiempo_aire';
+    const esTAE = isTiempoAire ? 1 : 0;
 
     // charged = monto que se descuenta del saldo del cliente
     let charged = amountNum;
@@ -329,6 +334,7 @@ export class TransactionsService {
         logo: dto.logo?.trim() ? dto.logo.trim() : null,
         code: '',
         isCredit,
+        esTAE,
         responseProvider: null,
       });
       const saved = await queryRunner.manager.save(tx);
@@ -339,7 +345,7 @@ export class TransactionsService {
       await queryRunner.manager.update(
         Transaction,
         { idTransaction: saved.idTransaction },
-        { isCredit },
+        { isCredit, esTAE },
       );
 
       await queryRunner.commitTransaction();
@@ -360,6 +366,7 @@ export class TransactionsService {
         idTransaction: saved.idTransaction,
         externalId: id,
         isCredit: isCreditNorm,
+        esTAE,
         tipoCobro: tipoCobroFromIsCredit(isCreditNorm),
         chargedAmount: charged.toFixed(2),
         recargaEstado: recargaEstadoFromMovivendor(ventaRes),

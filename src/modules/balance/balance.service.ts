@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -12,8 +13,10 @@ import { DataSource, Repository } from 'typeorm';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
+import { Role } from '../roles/entities/role.entity';
 import { AdjustCustomerBalanceDto } from './dto/adjust-customer-balance.dto';
 import { FilterBalanceHistoryDto } from './dto/filter-balance-history.dto';
+import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -31,6 +34,9 @@ interface MovivendorLoginResponse {
 
 @Injectable()
 export class BalanceService {
+  /** Rol portal administración (mismo criterio que `auth` / `transactions`). */
+  private readonly administratorRoleId = 1;
+
   constructor(
     private readonly config: ConfigService,
     @InjectRepository(CustomerBalance)
@@ -39,12 +45,41 @@ export class BalanceService {
     private readonly clientRepository: Repository<Client>,
     @InjectRepository(BalanceHistory)
     private readonly balanceHistoryRepository: Repository<BalanceHistory>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
     private readonly dataSource: DataSource,
   ) {}
 
   private cfg(key: string): string | undefined {
     const v = this.config.get<string>(key);
     return typeof v === 'string' ? v.trim() : v;
+  }
+
+  /**
+   * Super Administrador, Administrador (por nombre de rol) o portal administración (`RoleId = 1`).
+   */
+  private async assertBalancePrivilegedAdmin(roleId: number): Promise<void> {
+    const role = await this.roleRepository.findOne({ where: { id: roleId } });
+    if (!role) {
+      throw new ForbiddenException('Sin rol asignado');
+    }
+    const nameNorm = role.name?.trim().toLowerCase() ?? '';
+    const allowedNames = new Set(['super administrador', 'administrador']);
+    const isNamedAllowed = allowedNames.has(nameNorm);
+    const isPortalAdmin = role.id === this.administratorRoleId;
+    if (!isNamedAllowed && !isPortalAdmin) {
+      throw new ForbiddenException(
+        'Solo Super Administrador o Administrador pueden usar este recurso',
+      );
+    }
+  }
+
+  private clienteNombreConId(client: Client | null | undefined): string {
+    if (!client) return '';
+    const nombre =
+      (client.tradeName?.trim() || client.businessName?.trim() || '').trim() ||
+      'Cliente';
+    return `${nombre} (${client.id})`;
   }
 
   private async loginMovivendor(): Promise<string> {
@@ -264,14 +299,14 @@ export class BalanceService {
       .where('bh.CustomerId = :cid', { cid: clientId });
 
     if (filter.fechaInicio) {
-      qb.andWhere('bh.FHRegistro >= :fi', { fi: filter.fechaInicio });
+      qb.andWhere('bh.fhRegistro >= :fi', { fi: filter.fechaInicio });
     }
     if (filter.fechaFin) {
-      qb.andWhere('bh.FHRegistro <= :ff', { ff: filter.fechaFin });
+      qb.andWhere('bh.fhRegistro <= :ff', { ff: filter.fechaFin });
     }
 
     const [data, total] = await qb
-      .orderBy('bh.FHRegistro', 'DESC')
+      .orderBy('bh.fhRegistro', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -290,6 +325,97 @@ export class BalanceService {
         limit,
         totalPages: Math.ceil(total / limit) || 1,
       },
+    };
+  }
+
+  /**
+   * Movimientos con saldo pendiente de pago (`isPaid = 0`), todos los clientes.
+   * Acceso: "Super Administrador", "Administrador" (nombre de rol) o `RoleId = 1`.
+   */
+  async obtenerHistorialPendientePagoGlobal(
+    roleId: number,
+    filter: FilterBalanceHistoryDto,
+  ) {
+    await this.assertBalancePrivilegedAdmin(roleId);
+
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 10;
+
+    const qb = this.balanceHistoryRepository
+      .createQueryBuilder('bh')
+      .innerJoinAndSelect('bh.customer', 'c')
+      .where('bh.isPaid = :paid', { paid: 0 })
+      .andWhere('c.deletedAt IS NULL');
+
+    if (filter.fechaInicio) {
+      qb.andWhere('bh.fhRegistro >= :fi', { fi: filter.fechaInicio });
+    }
+    if (filter.fechaFin) {
+      qb.andWhere('bh.fhRegistro <= :ff', { ff: filter.fechaFin });
+    }
+
+    const [data, total] = await qb
+      .orderBy('bh.fhRegistro', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: data.map((h) => ({
+        id: h.id,
+        customerId: h.customer?.id ?? null,
+        cliente: this.clienteNombreConId(h.customer ?? undefined),
+        amount: h.amount,
+        fhRegistro: h.fhRegistro,
+        transactionType: h.transactionType === 2 ? 'Credito' : 'Pagado',
+        isPaid: 'Pendiente',
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Marca un `BalanceHistory` pendiente (`isPaid = 0`) como pagado (`isPaid = 1`).
+   */
+  async marcarBalanceHistoryComoPagado(
+    roleId: number,
+    dto: MarkBalanceHistoryPaidDto,
+  ) {
+    await this.assertBalancePrivilegedAdmin(roleId);
+
+    const row = await this.balanceHistoryRepository.findOne({
+      where: { id: dto.balanceHistoryId },
+      relations: { customer: true },
+    });
+    if (!row) {
+      throw new NotFoundException('Movimiento de balance no encontrado');
+    }
+
+    if (row.isPaid === 1) {
+      throw new BadRequestException('El movimiento ya está marcado como pagado');
+    }
+    if (row.isPaid !== 0) {
+      throw new BadRequestException(
+        'El movimiento no está en estado pendiente de pago (isPaid = 0)',
+      );
+    }
+
+    row.isPaid = 1;
+    await this.balanceHistoryRepository.save(row);
+
+    return {
+      id: row.id,
+      customerId: row.customer?.id ?? null,
+      cliente: this.clienteNombreConId(row.customer ?? undefined),
+      amount: row.amount,
+      fhRegistro: row.fhRegistro,
+      transactionType: row.transactionType === 2 ? 'Credito' : 'Pagado',
+      isPaid: 'Pagado',
     };
   }
 }
