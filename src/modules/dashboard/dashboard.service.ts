@@ -7,24 +7,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
+import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { Role } from '../roles/entities/role.entity';
 import { TransactionHistory } from '../transactions/entities/transaction-history.entity';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 
-function toRangeString(raw: Date): string {
-  return raw instanceof Date ? raw.toISOString() : String(raw);
-}
-
 function parseRangeStart(raw: Date): Date {
-  const s = toRangeString(raw).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00.000`);
-  return new Date(s);
+  const d = raw instanceof Date ? raw : new Date(raw);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
 
 function parseRangeEnd(raw: Date): Date {
-  const s = toRangeString(raw).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T23:59:59.999`);
-  return new Date(s);
+  const d = raw instanceof Date ? raw : new Date(raw);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
 function pct(part: number, total: number): number {
@@ -34,27 +29,34 @@ function pct(part: number, total: number): number {
 
 const DIA_SEMANA_ABBR = ['D', 'L', 'M', 'X', 'J', 'V', 'S'] as const;
 
-function ymdUtc(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function ymdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-/** Días calendario UTC inclusivos entre `from` y `to`. */
+/** Días calendario local inclusivos entre `from` y `to`. */
 function diasEnRango(from: Date, to: Date): string[] {
   const out: string[] = [];
-  const cur = new Date(from);
-  cur.setUTCHours(0, 0, 0, 0);
-  const end = new Date(to);
-  end.setUTCHours(0, 0, 0, 0);
+  const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = new Date(to.getFullYear(), to.getMonth(), to.getDate());
   while (cur.getTime() <= end.getTime()) {
-    out.push(ymdUtc(cur));
-    cur.setUTCDate(cur.getUTCDate() + 1);
+    out.push(ymdLocal(cur));
+    cur.setDate(cur.getDate() + 1);
   }
   return out;
 }
 
 function diaSemanaAbbr(ymd: string): string {
-  const d = new Date(`${ymd}T12:00:00.000Z`);
-  return DIA_SEMANA_ABBR[d.getUTCDay()] ?? '';
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return DIA_SEMANA_ABBR[dt.getDay()] ?? '';
+}
+
+function ymdFromQueryDate(val: string | Date | null | undefined): string {
+  if (val instanceof Date) return ymdLocal(val);
+  return String(val ?? '').slice(0, 10);
 }
 
 function ventasDiaVacio() {
@@ -66,13 +68,6 @@ function montoStr(n: number): string {
 }
 
 /** Fecha local (servidor en `America/Mexico_City` vía `set-tz`). */
-function ymdLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function rangoHoyLocal(): { from: Date; to: Date; fecha: string } {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -105,20 +100,26 @@ export class DashboardService {
     private readonly clientRepository: Repository<Client>,
     @InjectRepository(BalanceHistory)
     private readonly balanceHistoryRepository: Repository<BalanceHistory>,
+    @InjectRepository(CustomerBalance)
+    private readonly customerBalanceRepository: Repository<CustomerBalance>,
     @InjectRepository(TransactionHistory)
     private readonly txHistoryRepository: Repository<TransactionHistory>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
   ) {}
 
-  /** Consultas base sobre `TransactionsHistory` (no usar tabla `Transactions`). */
-  private historyQb(from: Date, to: Date, code = '0') {
+  /** Ventas exitosas en `TransactionsHistory` (`code` = 0, no vacío). */
+  private historyQb(from: Date, to: Date) {
     return this.txHistoryRepository
       .createQueryBuilder('th')
-      .where('th.code = :code', { code })
+      .where("TRIM(CAST(th.code AS CHAR)) = '0'")
       .andWhere('th.fhRegister >= :from', { from })
       .andWhere('th.fhRegister <= :to', { to });
   }
+
+  private exprMarcaTae = `COALESCE(NULLIF(TRIM(th.brand), ''), NULLIF(TRIM(th.sku), ''), 'Sin marca')`;
+
+  private exprSkuProducto = `COALESCE(NULLIF(TRIM(th.sku), ''), 'Sin SKU')`;
 
   /** `BalanceHistory` por `isPaid` y rango opcional en `fhRegistro`. */
   private async resumenBalanceHistory(
@@ -203,16 +204,14 @@ export class DashboardService {
     const ventasMesActual = { mes: mes.mes, ...resumenMes };
 
     const totalTaeExitosas = await this.historyQb(from, to)
-      .andWhere('th.esTAE = :esTAE', { esTAE: 1 })
+      .andWhere('(th.esTAE = 1 OR th.esTAE = TRUE)')
       .getCount();
 
     const topMarcas = await this.historyQb(from, to)
-      .select('th.brand', 'brand')
+      .select(this.exprMarcaTae, 'brand')
       .addSelect('COUNT(*)', 'cantidad')
-      .andWhere('th.esTAE = :esTAE', { esTAE: 1 })
-      .andWhere('th.brand IS NOT NULL')
-      .andWhere("TRIM(th.brand) <> ''")
-      .groupBy('th.brand')
+      .andWhere('(th.esTAE = 1 OR th.esTAE = TRUE)')
+      .groupBy(this.exprMarcaTae)
       .orderBy('COUNT(*)', 'DESC')
       .limit(5)
       .getRawMany<{ brand: string; cantidad: string }>();
@@ -230,13 +229,11 @@ export class DashboardService {
     const totalVentasExitosas = await this.historyQb(from, to).getCount();
 
     const topProductos = await this.historyQb(from, to)
-      .select('th.sku', 'sku')
+      .select(this.exprSkuProducto, 'sku')
       .addSelect('MAX(th.brand)', 'brand')
       .addSelect('COUNT(*)', 'cantidad')
       .addSelect('COALESCE(SUM(th.amount), 0)', 'montoTotal')
-      .andWhere('th.sku IS NOT NULL')
-      .andWhere("TRIM(th.sku) <> ''")
-      .groupBy('th.sku')
+      .groupBy(this.exprSkuProducto)
       .orderBy('COUNT(*)', 'DESC')
       .limit(10)
       .getRawMany<{
@@ -277,10 +274,7 @@ export class DashboardService {
     >();
 
     for (const row of ventasPorDiaRaw) {
-      const fechaKey =
-        row.fecha instanceof Date
-          ? ymdUtc(row.fecha)
-          : String(row.fecha ?? '').slice(0, 10);
+      const fechaKey = ymdFromQueryDate(row.fecha);
       if (!fechaKey) continue;
 
       if (!ventasPorDiaMap.has(fechaKey)) {
@@ -367,6 +361,24 @@ export class DashboardService {
       };
     });
 
+    const topSaldoRaw = await this.customerBalanceRepository
+      .createQueryBuilder('cb')
+      .innerJoin('cb.customer', 'c')
+      .where('c.deletedAt IS NULL')
+      .select(
+        "COALESCE(NULLIF(TRIM(c.tradeName), ''), c.businessName)",
+        'nombreCliente',
+      )
+      .addSelect('cb.balance', 'saldo')
+      .orderBy('CAST(cb.balance AS DECIMAL(12,2))', 'DESC')
+      .limit(4)
+      .getRawMany<{ nombreCliente: string; saldo: string }>();
+
+    const saldoPorCliente = topSaldoRaw.map((row) => ({
+      nombreCliente: String(row.nombreCliente ?? '').trim() || 'Cliente',
+      saldo: Number(row.saldo) || 0,
+    }));
+
     return {
       totalClientes,
       ventasHoy,
@@ -375,6 +387,7 @@ export class DashboardService {
       operadoresMasVendidosTAE,
       productosMasVendidos,
       ventasPorCliente,
+      saldoPorCliente,
       ventasRangoFechas,
     };
   }

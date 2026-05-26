@@ -5,7 +5,30 @@ import { IsDate, IsOptional, ValidateIf } from 'class-validator';
 /** `""`, `null` o solo espacios → sin fecha (usa día actual en el servicio). */
 function fechaOpcional({ value }: { value: unknown }): Date | undefined {
   if (value === null || value === undefined) return undefined;
-  if (typeof value === 'string' && value.trim() === '') return undefined;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (s === '') return undefined;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y, m, d] = s.split('-').map(Number);
+      return new Date(y, m - 1, d, 0, 0, 0, 0);
+    }
+    return new Date(s);
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    // `yyyy-MM-dd` vía JSON → medianoche UTC; normalizar a calendario local
+    if (/T00:00:00\.000Z$/.test(value.toISOString())) {
+      return new Date(
+        value.getUTCFullYear(),
+        value.getUTCMonth(),
+        value.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      );
+    }
+    return value;
+  }
   return value as Date;
 }
 
