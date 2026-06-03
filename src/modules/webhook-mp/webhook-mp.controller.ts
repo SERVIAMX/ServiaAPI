@@ -15,7 +15,7 @@ export class WebhookMpController {
   @ApiOperation({
     summary: 'Webhook Mercado Pago',
     description:
-      'Persiste en `Payments`. Si `status=processed` y `payment_status_detail=accredited`, suma `total_amount` al `Balance` del cliente (`client_id`) y registra `BalanceHistory` pagado.',
+      'Persiste en `Payments`. Si `status=processed` y `payment_status_detail=accredited`, suma `total_amount` al `Balance`. Opcional `idBalanceHistory`: marca ese registro `isPaid=1` (sin crear otro historial).',
   })
   notificacion(@Body() dto: MercadoPagoWebhookDto) {
     return this.webhookMpService.recibirNotificacion(dto);

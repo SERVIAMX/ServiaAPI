@@ -65,9 +65,10 @@ export class WebhookMpService {
     const clientId = resolveClientId(dto);
     const amount = Number(dto.total_amount);
     const acreditar = isPagoAcreditado(dto);
+    const balanceHistoryId = dto.idBalanceHistory;
 
     this.logger.log(
-      `[WebhookMP] payment_id=${dto.payment_id} clientId=${clientId} amount=${dto.total_amount} acreditar=${acreditar}`,
+      `[WebhookMP] payment_id=${dto.payment_id} clientId=${clientId} amount=${dto.total_amount} acreditar=${acreditar} idBalanceHistory=${balanceHistoryId ?? '—'}`,
     );
 
     if (Number.isNaN(amount) || amount <= 0) {
@@ -88,14 +89,24 @@ export class WebhookMpService {
 
     if (existente) {
       this.logger.warn(`[WebhookMP] payment_id duplicado: ${dto.payment_id}`);
-      const balanceCredited = acreditar
-        ? await this.acreditarSaldoSiFalta(client, amount, existente.fhRegistro)
-        : false;
+      const resultado = acreditar
+        ? await this.acreditarSaldoSiFalta(
+            client,
+            amount,
+            existente.fhRegistro,
+            balanceHistoryId,
+          )
+        : {
+            balanceCredited: false,
+            balanceHistoryMarkedPaid: false,
+          };
       return {
         received: true,
         duplicate: true,
         paymentId: dto.payment_id,
-        balanceCredited,
+        balanceCredited: resultado.balanceCredited,
+        balanceHistoryMarkedPaid: resultado.balanceHistoryMarkedPaid,
+        balanceHistoryId: balanceHistoryId ?? null,
         clientId,
         amount: amount.toFixed(2),
       };
@@ -131,11 +142,21 @@ export class WebhookMpService {
       await qr.manager.save(payment);
 
       let balanceCredited = false;
+      let balanceHistoryMarkedPaid = false;
       if (acreditar) {
-        await this.acreditarBalanceCliente(qr.manager, client, amount);
+        const r = await this.acreditarBalanceCliente(
+          qr.manager,
+          client,
+          amount,
+          balanceHistoryId,
+        );
         balanceCredited = true;
+        balanceHistoryMarkedPaid = r.balanceHistoryMarkedPaid;
         this.logger.log(
-          `[WebhookMP] Saldo acreditado: clientId=${clientId} +${amount.toFixed(2)}`,
+          `[WebhookMP] Saldo acreditado: clientId=${clientId} +${amount.toFixed(2)}` +
+            (balanceHistoryMarkedPaid
+              ? ` | BalanceHistory #${balanceHistoryId} → isPaid=1`
+              : ''),
         );
       } else {
         this.logger.log(
@@ -150,6 +171,8 @@ export class WebhookMpService {
         duplicate: false,
         paymentId: dto.payment_id,
         balanceCredited,
+        balanceHistoryMarkedPaid,
+        balanceHistoryId: balanceHistoryId ?? null,
         clientId,
         amount: amount.toFixed(2),
       };
@@ -186,25 +209,37 @@ export class WebhookMpService {
     client: Client,
     amount: number,
     desde: Date,
-  ): Promise<boolean> {
+    balanceHistoryId?: number,
+  ): Promise<{
+    balanceCredited: boolean;
+    balanceHistoryMarkedPaid: boolean;
+  }> {
     const amountStr = amount.toFixed(2);
-    if (await this.yaTieneAbonoRegistrado(client.id, amountStr, desde)) {
+    if (
+      !balanceHistoryId &&
+      (await this.yaTieneAbonoRegistrado(client.id, amountStr, desde))
+    ) {
       this.logger.log(
         `[WebhookMP] Abono ya existía para clientId=${client.id} amount=${amountStr}`,
       );
-      return false;
+      return { balanceCredited: false, balanceHistoryMarkedPaid: false };
     }
 
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
     try {
-      await this.acreditarBalanceCliente(qr.manager, client, amount);
+      const r = await this.acreditarBalanceCliente(
+        qr.manager,
+        client,
+        amount,
+        balanceHistoryId,
+      );
       await qr.commitTransaction();
       this.logger.log(
         `[WebhookMP] Saldo acreditado (reintento): clientId=${client.id} +${amountStr}`,
       );
-      return true;
+      return { balanceCredited: true, balanceHistoryMarkedPaid: r.balanceHistoryMarkedPaid };
     } catch (e) {
       await qr.rollbackTransaction();
       throw e;
@@ -213,11 +248,64 @@ export class WebhookMpService {
     }
   }
 
+  /**
+   * Marca `BalanceHistory` pendiente como pagado (`isPaid = 1`).
+   * Valida que pertenezca al `clientId` del webhook.
+   */
+  private async marcarBalanceHistoryPagado(
+    manager: EntityManager,
+    balanceHistoryId: number,
+    clientId: number,
+  ): Promise<boolean> {
+    const row = await manager.findOne(BalanceHistory, {
+      where: { id: balanceHistoryId },
+      relations: { customer: true },
+    });
+    if (!row) {
+      throw new NotFoundException(
+        `BalanceHistory no encontrado (id=${balanceHistoryId})`,
+      );
+    }
+
+    const rowClientId = row.customer?.id;
+    if (rowClientId != null && rowClientId !== clientId) {
+      throw new BadRequestException(
+        `BalanceHistory #${balanceHistoryId} no pertenece al cliente ${clientId}`,
+      );
+    }
+
+    if (row.isPaid === 1) {
+      this.logger.log(
+        `[WebhookMP] BalanceHistory #${balanceHistoryId} ya estaba pagado`,
+      );
+      return false;
+    }
+    if (row.isPaid !== 0) {
+      throw new BadRequestException(
+        `BalanceHistory #${balanceHistoryId} no está pendiente (isPaid = 0)`,
+      );
+    }
+
+    row.isPaid = 1;
+    await manager.save(row);
+    return true;
+  }
+
   private async acreditarBalanceCliente(
     manager: EntityManager,
     client: Client,
     amount: number,
-  ): Promise<void> {
+    balanceHistoryId?: number,
+  ): Promise<{ balanceHistoryMarkedPaid: boolean }> {
+    let balanceHistoryMarkedPaid = false;
+    if (balanceHistoryId != null) {
+      balanceHistoryMarkedPaid = await this.marcarBalanceHistoryPagado(
+        manager,
+        balanceHistoryId,
+        client.id,
+      );
+    }
+
     let cb = await manager.findOne(CustomerBalance, {
       where: { customer: { id: client.id } },
       relations: { customer: true },
@@ -235,12 +323,16 @@ export class WebhookMpService {
     cb.balance = (currentBalance + amount).toFixed(2);
     await manager.save(cb);
 
-    const hist = manager.create(BalanceHistory, {
-      customer: client,
-      amount: amount.toFixed(2),
-      transactionType: 1,
-      isPaid: 1,
-    });
-    await manager.save(hist);
+    if (!balanceHistoryId) {
+      const hist = manager.create(BalanceHistory, {
+        customer: client,
+        amount: amount.toFixed(2),
+        transactionType: 1,
+        isPaid: 1,
+      });
+      await manager.save(hist);
+    }
+
+    return { balanceHistoryMarkedPaid };
   }
 }

@@ -29,7 +29,7 @@ export class BalanceController {
   @ApiOperation({
     summary: 'Ajusta saldo del cliente (Balance/CreditBalance)',
     description:
-      'Suma Amount sobre CustomerBalance por CustomerId. Si RequiresCredit=true suma a CreditBalance (validando contra CreditLine). Si false suma a Balance. Registra BalanceHistory (type 2 crédito, type 1 pagado).',
+      'Suma Amount sobre CustomerBalance por CustomerId. Si RequiresCredit=true suma a CreditBalance (validando CreditLine). No permite crédito si ya existe BalanceHistory con isPaid=0. Si RequiresCredit=false suma a Balance (pagado).',
   })
   ajustarSaldo(@Body() dto: AdjustCustomerBalanceDto) {
     return this.balanceService.ajustarSaldoCliente(dto);

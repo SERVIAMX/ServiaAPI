@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 export class MercadoPagoWebhookDto {
   @ApiProperty({ example: 'ORDTST01KSK87RMN5EPTSA5DA0142QF2' })
@@ -59,4 +59,22 @@ export class MercadoPagoWebhookDto {
   @IsOptional()
   @IsString()
   client_id?: string;
+
+  @ApiPropertyOptional({
+    example: 42,
+    description:
+      'Id de `BalanceHistory` pendiente (`isPaid = 0`) a marcar como pagado (`isPaid = 1`) al acreditar el pago.',
+  })
+  @IsOptional()
+  @Transform(({ obj, value }) => {
+    const raw =
+      value ?? obj?.idBalanceHistory ?? obj?.id_balance_history;
+    if (raw === null || raw === undefined || raw === '') return undefined;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  idBalanceHistory?: number;
 }

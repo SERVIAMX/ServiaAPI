@@ -207,6 +207,20 @@ export class BalanceService {
       throw new NotFoundException('Cliente no encontrado');
     }
 
+    if (requiresCredit) {
+      const pendientePago = await this.balanceHistoryRepository.count({
+        where: {
+          customer: { id: customerId },
+          isPaid: 0,
+        },
+      });
+      if (pendientePago > 0) {
+        throw new BadRequestException(
+          'El cliente tiene un abono pendiente de pago (BalanceHistory isPaid = 0). Solo puede recibir saldo pagado hasta liquidarlo.',
+        );
+      }
+    }
+
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
