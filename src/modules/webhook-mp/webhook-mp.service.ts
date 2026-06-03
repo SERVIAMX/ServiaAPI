@@ -65,10 +65,10 @@ export class WebhookMpService {
     const clientId = resolveClientId(dto);
     const amount = Number(dto.total_amount);
     const acreditar = isPagoAcreditado(dto);
-    const balanceHistoryId = dto.idBalanceHistory;
+    const balanceHistoryId = dto.id_history_balance;
 
     this.logger.log(
-      `[WebhookMP] payment_id=${dto.payment_id} clientId=${clientId} amount=${dto.total_amount} acreditar=${acreditar} idBalanceHistory=${balanceHistoryId ?? '—'}`,
+      `[WebhookMP] payment_id=${dto.payment_id} clientId=${clientId} amount=${dto.total_amount} acreditar=${acreditar} id_history_balance=${balanceHistoryId ?? '—'}`,
     );
 
     if (Number.isNaN(amount) || amount <= 0) {
@@ -215,14 +215,40 @@ export class WebhookMpService {
     balanceHistoryMarkedPaid: boolean;
   }> {
     const amountStr = amount.toFixed(2);
-    if (
-      !balanceHistoryId &&
-      (await this.yaTieneAbonoRegistrado(client.id, amountStr, desde))
-    ) {
+    const yaAbono = await this.yaTieneAbonoRegistrado(
+      client.id,
+      amountStr,
+      desde,
+    );
+
+    if (!balanceHistoryId && yaAbono) {
       this.logger.log(
         `[WebhookMP] Abono ya existía para clientId=${client.id} amount=${amountStr}`,
       );
       return { balanceCredited: false, balanceHistoryMarkedPaid: false };
+    }
+
+    if (balanceHistoryId != null && yaAbono) {
+      const qr = this.dataSource.createQueryRunner();
+      await qr.connect();
+      await qr.startTransaction();
+      try {
+        const balanceHistoryMarkedPaid = await this.marcarBalanceHistoryPagado(
+          qr.manager,
+          balanceHistoryId,
+          client.id,
+        );
+        await qr.commitTransaction();
+        this.logger.log(
+          `[WebhookMP] Reintento: solo marca BalanceHistory #${balanceHistoryId} (abono ya existía)`,
+        );
+        return { balanceCredited: false, balanceHistoryMarkedPaid };
+      } catch (e) {
+        await qr.rollbackTransaction();
+        throw e;
+      } finally {
+        await qr.release();
+      }
     }
 
     const qr = this.dataSource.createQueryRunner();
@@ -274,15 +300,16 @@ export class WebhookMpService {
       );
     }
 
-    if (row.isPaid === 1) {
+    const isPaid = Number(row.isPaid);
+    if (isPaid === 1) {
       this.logger.log(
         `[WebhookMP] BalanceHistory #${balanceHistoryId} ya estaba pagado`,
       );
       return false;
     }
-    if (row.isPaid !== 0) {
+    if (isPaid !== 0) {
       throw new BadRequestException(
-        `BalanceHistory #${balanceHistoryId} no está pendiente (isPaid = 0)`,
+        `BalanceHistory #${balanceHistoryId} no está pendiente (isPaid = 0, actual=${row.isPaid})`,
       );
     }
 

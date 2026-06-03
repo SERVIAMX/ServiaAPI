@@ -61,14 +61,19 @@ export class MercadoPagoWebhookDto {
   client_id?: string;
 
   @ApiPropertyOptional({
-    example: 42,
+    example: 43,
+    name: 'id_history_balance',
     description:
-      'Id de `BalanceHistory` pendiente (`isPaid = 0`) a marcar como pagado (`isPaid = 1`) al acreditar el pago.',
+      'Id de `BalanceHistory` pendiente (`isPaid = 0`) a marcar como pagado (`isPaid = 1`) al acreditar el pago. Alias: `idBalanceHistory`, `id_balance_history`.',
   })
   @IsOptional()
   @Transform(({ obj, value }) => {
     const raw =
-      value ?? obj?.idBalanceHistory ?? obj?.id_balance_history;
+      value ??
+      obj?.id_history_balance ??
+      obj?.idHistoryBalance ??
+      obj?.idBalanceHistory ??
+      obj?.id_balance_history;
     if (raw === null || raw === undefined || raw === '') return undefined;
     const n = Number(raw);
     return Number.isInteger(n) && n > 0 ? n : undefined;
@@ -76,5 +81,5 @@ export class MercadoPagoWebhookDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  idBalanceHistory?: number;
+  id_history_balance?: number;
 }
