@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { DataSource, MoreThan, Repository } from 'typeorm';
+import { safeRelease, safeRollback } from '../../database/query-runner.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -157,10 +158,10 @@ export class AuthService {
         refreshToken: newRefreshPlain,
       };
     } catch (e) {
-      await queryRunner.rollbackTransaction();
+      await safeRollback(queryRunner);
       throw e;
     } finally {
-      await queryRunner.release();
+      await safeRelease(queryRunner);
     }
   }
 
@@ -285,10 +286,10 @@ export class AuthService {
 
       await queryRunner.commitTransaction();
     } catch (e) {
-      await queryRunner.rollbackTransaction();
+      await safeRollback(queryRunner);
       throw e;
     } finally {
-      await queryRunner.release();
+      await safeRelease(queryRunner);
     }
 
     return { ok: true };

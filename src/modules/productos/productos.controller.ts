@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
+import { TransactionsService } from '../transactions/transactions.service';
 import { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
 import { EstatusVentaDto } from './dto/estatus-venta.dto';
 import { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
@@ -16,7 +18,10 @@ import { ProductosService } from './productos.service';
 @ApiBearerAuth()
 @Controller('productos')
 export class ProductosController {
-  constructor(private readonly productosService: ProductosService) {}
+  constructor(
+    private readonly productosService: ProductosService,
+    private readonly transactionsService: TransactionsService,
+  ) {}
 
   @Get('marcas')
   @ApiOperation({
@@ -58,12 +63,31 @@ export class ProductosController {
 
   @Post('venta')
   @ApiOperation({
-    summary: 'Ejecutar venta / recarga (Movivendor do/tx)',
+    summary: 'Ejecutar venta / recarga (inserta en Transactions + Movivendor)',
     description:
-      'Envía POST a `MOVIVENDOR_VENTA` con token obtenido por login en servidor. Body: `id`, `product`, `subprod`, `destination`, `amount`; `terminal` opcional si existe `MOVIVENDOR_TERMINAL` en `.env`.',
+      'Con JWT: descuenta saldo del cliente, **inserta en `Transactions`** y ejecuta Movivendor (`do/tx`). Body: `product`, `subprod`, `destination`, `amount`; opcional `tipo` (default `tiempo_aire`), `brand`, `logo`. Si envías `idTransaction`, solo reintenta Movivendor sobre ese registro.',
   })
-  ejecutarVenta(@Body() dto: EjecutarVentaDto) {
-    return this.productosService.ejecutarVenta(dto);
+  ejecutarVenta(@Req() req: Request, @Body() dto: EjecutarVentaDto) {
+    if (dto.idTransaction != null) {
+      return this.productosService.ejecutarVenta(dto);
+    }
+
+    const authUser = req.user as
+      | { userId: number; clientId: number }
+      | undefined;
+    if (!authUser?.userId || !authUser?.clientId) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+
+    return this.transactionsService.createTransaction(authUser, {
+      tipo: dto.tipo ?? 'tiempo_aire',
+      product: dto.product,
+      subprod: dto.subprod,
+      destination: dto.destination,
+      amount: dto.amount,
+      brand: dto.brand,
+      logo: dto.logo,
+    });
   }
 
   @Post('estatus-venta')

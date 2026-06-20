@@ -19,4 +19,12 @@ export default new DataSource({
   logging: process.env.DB_LOGGING === 'true',
   entities: [path.join(__dirname, '../**/*.entity{.ts,.js}')],
   migrations: [path.join(__dirname, './migrations/*{.ts,.js}')],
+  extra: {
+    connectionLimit: parseInt(process.env.DB_POOL_LIMIT || '10', 10),
+    maxIdle: 5,
+    idleTimeout: 30_000,
+    waitForConnections: true,
+    queueLimit: 50,
+    enableKeepAlive: true,
+  },
 });

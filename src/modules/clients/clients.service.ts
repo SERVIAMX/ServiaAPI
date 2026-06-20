@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { runInTransaction } from '../../database/query-runner.util';
 import { User } from '../users/entities/user.entity';
 import { Client } from './entities/client.entity';
 import { BalanceHistory } from './entities/balance-history.entity';
@@ -74,18 +75,15 @@ export class ClientsService {
           : commissionPercentage.toFixed(2),
     });
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      const savedClient = await queryRunner.manager.save(client);
+    return runInTransaction(this.dataSource, async (manager) => {
+      const savedClient = await manager.save(client);
 
       const balance = this.customerBalanceRepository.create({
         customer: savedClient,
         creditBalance: requiresCredit ? creditBalVal.toFixed(2) : '0.00',
         balance: amountVal > 0 ? amountVal.toFixed(2) : '0.00',
       });
-      await queryRunner.manager.save(balance);
+      await manager.save(balance);
 
       const historyToInsert: BalanceHistory[] = [];
       if (creditBalVal > 0) {
@@ -109,17 +107,11 @@ export class ClientsService {
         );
       }
       for (const h of historyToInsert) {
-        await queryRunner.manager.save(h);
+        await manager.save(h);
       }
 
-      await queryRunner.commitTransaction();
       return savedClient;
-    } catch (e) {
-      await queryRunner.rollbackTransaction();
-      throw e;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   async findAll(filter: FilterClientDto) {
@@ -232,24 +224,15 @@ export class ClientsService {
 
   async remove(id: number) {
     const client = await this.findOne(id);
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      await queryRunner.manager
+    await runInTransaction(this.dataSource, async (manager) => {
+      await manager
         .createQueryBuilder()
         .softDelete()
         .from(User)
         .where('ClientId = :cid', { cid: id })
         .execute();
-      await queryRunner.manager.softRemove(Client, client);
-      await queryRunner.commitTransaction();
-    } catch (e) {
-      await queryRunner.rollbackTransaction();
-      throw e;
-    } finally {
-      await queryRunner.release();
-    }
+      await manager.softRemove(Client, client);
+    });
     return { deleted: true };
   }
 

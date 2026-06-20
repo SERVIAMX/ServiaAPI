@@ -5,6 +5,8 @@ import { PascalCaseNamingStrategy } from '../database/pascal-case-naming.strateg
 export function createTypeOrmOptions(
   config: ConfigService,
 ): TypeOrmModuleOptions {
+  const connectionLimit = config.get<number>('DB_POOL_LIMIT', 10);
+
   return {
     type: 'mysql',
     host: config.get<string>('DB_HOST', 'localhost'),
@@ -20,5 +22,16 @@ export function createTypeOrmOptions(
     autoLoadEntities: true,
     migrations: [__dirname + '/../database/migrations/*.js'],
     migrationsRun: false,
+    /** Pool mysql2: evita acumular conexiones Sleep sin límite. */
+    extra: {
+      connectionLimit,
+      maxIdle: Math.min(5, connectionLimit),
+      idleTimeout: 30_000,
+      waitForConnections: true,
+      queueLimit: 50,
+      connectTimeout: 10_000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10_000,
+    },
   };
 }

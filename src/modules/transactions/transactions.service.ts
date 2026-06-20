@@ -1,11 +1,14 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, Repository } from 'typeorm';
+import { runInTransaction } from '../../database/query-runner.util';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosService } from '../productos/productos.service';
@@ -20,6 +23,34 @@ function recargaEstadoFromMovivendor(json: unknown): 'exitosa' | 'fallida' | 'pe
   return recargaEstadoFromCode(
     code === undefined || code === null ? '' : String(code),
   );
+}
+
+function movivendorPayloadFromError(error: unknown): {
+  code?: string;
+  responseProvider: unknown;
+} {
+  if (error instanceof ConflictException) {
+    const resp = error.getResponse();
+    if (typeof resp === 'object' && resp !== null && 'data' in resp) {
+      const data = (resp as { data: unknown }).data;
+      if (typeof data === 'object' && data !== null) {
+        const rec = data as Record<string, unknown>;
+        const code =
+          typeof rec.code === 'number' || typeof rec.code === 'string'
+            ? String(rec.code)
+            : undefined;
+        return { code, responseProvider: data };
+      }
+    }
+  }
+
+  return {
+    responseProvider: {
+      error: true,
+      message:
+        error instanceof Error ? error.message : 'Error en proveedor',
+    },
+  };
 }
 
 /** Asegura 0 | 1 | null en respuestas (evita boolean del driver). */
@@ -66,8 +97,18 @@ function parseRangeEnd(raw: string): Date {
   return new Date(s);
 }
 
+function queryAffectedRows(result: unknown): number {
+  const header = Array.isArray(result) ? result[0] : result;
+  if (header && typeof header === 'object' && 'affectedRows' in header) {
+    return Number((header as { affectedRows: number }).affectedRows) || 0;
+  }
+  return 0;
+}
+
 @Injectable()
 export class TransactionsService {
+  private readonly logger = new Logger(TransactionsService.name);
+
   constructor(
     @InjectRepository(Transaction)
     private readonly txRepo: Repository<Transaction>,
@@ -80,6 +121,101 @@ export class TransactionsService {
     private readonly productosService: ProductosService,
     private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * Descuenta saldo sin `SELECT FOR UPDATE` (evita bloqueos largos en CustomerBalance).
+   * @returns 0 = Balance, 1 = CreditBalance
+   */
+  private async descontarSaldoCliente(
+    manager: EntityManager,
+    clientId: number,
+    charged: number,
+  ): Promise<0 | 1> {
+    const amt = charged.toFixed(2);
+
+    const exists = await manager.query(
+      'SELECT Id FROM CustomerBalance WHERE CustomerId = ? LIMIT 1',
+      [clientId],
+    );
+    if (!Array.isArray(exists) || exists.length === 0) {
+      throw new NotFoundException('Balance del cliente no encontrado');
+    }
+
+    const fromBalance = queryAffectedRows(
+      await manager.query(
+        'UPDATE CustomerBalance SET Balance = Balance - ? WHERE CustomerId = ? AND Balance >= ?',
+        [amt, clientId, amt],
+      ),
+    );
+    if (fromBalance > 0) return 0;
+
+    const fromCredit = queryAffectedRows(
+      await manager.query(
+        'UPDATE CustomerBalance SET CreditBalance = CreditBalance - ? WHERE CustomerId = ? AND CreditBalance >= ?',
+        [amt, clientId, amt],
+      ),
+    );
+    if (fromCredit > 0) return 1;
+
+    throw new BadRequestException('No cuentas con saldo suficiente');
+  }
+
+  private async reintegrarSaldoCliente(
+    manager: EntityManager,
+    clientId: number,
+    charged: number,
+    isCredit: number,
+  ): Promise<void> {
+    const amt = charged.toFixed(2);
+    if (isCredit === 0) {
+      await manager.query(
+        'UPDATE CustomerBalance SET Balance = Balance + ? WHERE CustomerId = ?',
+        [amt, clientId],
+      );
+    } else {
+      await manager.query(
+        'UPDATE CustomerBalance SET CreditBalance = CreditBalance + ? WHERE CustomerId = ?',
+        [amt, clientId],
+      );
+    }
+  }
+
+  /** Si Movivendor falla después del commit, revierte saldo y marca error en la fila. */
+  private async revertirTrasFalloProveedor(
+    clientId: number,
+    idTransaction: number,
+    isCreditUsed: number,
+    charged: number,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await runInTransaction(this.dataSource, async (manager) => {
+        await this.reintegrarSaldoCliente(
+          manager,
+          clientId,
+          charged,
+          isCreditUsed,
+        );
+
+        const mv = movivendorPayloadFromError(error);
+        await manager.update(
+          Transaction,
+          { idTransaction },
+          {
+            ...(mv.code ? { code: mv.code } : {}),
+            responseProvider: mv.responseProvider as any,
+          },
+        );
+      });
+      this.logger.log(
+        `[createTransaction] Saldo revertido tras fallo proveedor (tx #${idTransaction})`,
+      );
+    } catch (revertErr) {
+      this.logger.error(
+        `[createTransaction] No se pudo revertir saldo (tx #${idTransaction}): ${revertErr instanceof Error ? revertErr.message : revertErr}`,
+      );
+    }
+  }
 
   async findByUserAndDateRange(userId: number, filter: FilterTransactionsDto) {
     if (!userId) throw new UnauthorizedException('Usuario no autenticado');
@@ -291,41 +427,23 @@ export class TransactionsService {
     }
     charged = Number(charged.toFixed(2));
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    let savedIdTransaction: number | null = null;
-    let isCreditUsed: number | null = null;
-    try {
-      // Bloquea el balance del cliente por CustomerId
-      const cb = await queryRunner.manager
-        .getRepository(CustomerBalance)
-        .createQueryBuilder('cb')
-        .where('cb.CustomerId = :cid', { cid: authUser.clientId })
-        .setLock('pessimistic_write')
-        .getOne();
-      if (!cb) throw new NotFoundException('Balance del cliente no encontrado');
+    this.logger.log(
+      `[createTransaction] Inicio userId=${authUser.userId} clientId=${authUser.clientId} externalId=${id} charged=${charged}`,
+    );
 
-      const bal = Number(cb.balance ?? '0');
-      const cred = Number(cb.creditBalance ?? '0');
+    let savedIdTransaction: number;
+    let isCredit: number;
 
-      /** IsCredit: 0 = Pagado (Balance), 1 = Crédito (CreditBalance). */
-      let isCredit: number;
-      if (bal >= charged) {
-        cb.balance = (bal - charged).toFixed(2);
-        isCredit = 0;
-      } else if (cred >= charged) {
-        cb.creditBalance = (cred - charged).toFixed(2);
-        isCredit = 1;
-      } else {
-        throw new BadRequestException('No cuentas con saldo suficiente');
-      }
+    const fase1 = await runInTransaction(this.dataSource, async (manager) => {
+      const creditFlag = await this.descontarSaldoCliente(
+        manager,
+        authUser.clientId,
+        charged,
+      );
 
-      await queryRunner.manager.save(cb);
-
-      const tx = this.txRepo.create({
+      const tx = manager.create(Transaction, {
         externalId: id,
-        user,
+        user: { id: user.id } as User,
         amount: amountNum.toFixed(2),
         netAmount: charged.toFixed(2),
         destination: dto.destination.trim(),
@@ -333,37 +451,36 @@ export class TransactionsService {
         sku: dto.product,
         logo: dto.logo?.trim() ? dto.logo.trim() : null,
         code: '',
-        isCredit,
+        isCredit: creditFlag,
         esTAE,
         responseProvider: null,
       });
-      const saved = await queryRunner.manager.save(tx);
-      savedIdTransaction = saved.idTransaction;
-      isCreditUsed = isCredit;
+      const saved = await manager.save(tx);
 
-      // Refuerzo: algunos drivers/TypeORM pueden leer mal TINYINT; dejamos 0/1 explícito en BD.
-      await queryRunner.manager.update(
-        Transaction,
-        { idTransaction: saved.idTransaction },
-        { isCredit, esTAE },
+      this.logger.log(
+        `[createTransaction] INSERT Transactions #${saved.idTransaction} externalId=${id}`,
       );
 
-      await queryRunner.commitTransaction();
+      return { idTransaction: saved.idTransaction, isCredit: creditFlag };
+    });
 
-      // IMPORTANTE: la venta NO debe ejecutarse dentro de la transacción,
-      // porque /productos/venta actualiza Transactions con otra conexión y puede provocar lock wait timeout.
+    savedIdTransaction = fase1.idTransaction;
+    isCredit = fase1.isCredit;
+
+    // Fase 2: Movivendor sin conexión DB abierta.
+    try {
       const ventaRes = await this.productosService.ejecutarVenta({
         id,
         product: dto.product,
         subprod: dto.subprod,
         destination: dto.destination,
-        amount: dto.amount, // monto de recarga enviado a proveedor
-        idTransaction: saved.idTransaction,
+        amount: dto.amount,
+        idTransaction: savedIdTransaction,
       });
 
       const isCreditNorm = normalizeIsCredit(isCredit);
       return {
-        idTransaction: saved.idTransaction,
+        idTransaction: savedIdTransaction,
         externalId: id,
         isCredit: isCreditNorm,
         esTAE,
@@ -373,57 +490,14 @@ export class TransactionsService {
         movivendor: ventaRes,
       };
     } catch (e) {
-      await queryRunner.rollbackTransaction();
-
-      // Si ya se descontó saldo y se creó transacción, revierte el saldo y guarda el error en ResponseProvider.
-      if (savedIdTransaction !== null && isCreditUsed !== null) {
-        try {
-          const qr2 = this.dataSource.createQueryRunner();
-          await qr2.connect();
-          await qr2.startTransaction();
-          try {
-            const cb2 = await qr2.manager
-              .getRepository(CustomerBalance)
-              .createQueryBuilder('cb')
-              .where('cb.CustomerId = :cid', { cid: authUser.clientId })
-              .setLock('pessimistic_write')
-              .getOne();
-            if (cb2) {
-              const bal2 = Number(cb2.balance ?? '0');
-              const cred2 = Number(cb2.creditBalance ?? '0');
-              if (isCreditUsed === 0) {
-                cb2.balance = (bal2 + charged).toFixed(2);
-              } else {
-                cb2.creditBalance = (cred2 + charged).toFixed(2);
-              }
-              await qr2.manager.save(cb2);
-            }
-
-            await qr2.manager.update(
-              Transaction,
-              { idTransaction: savedIdTransaction },
-              {
-                responseProvider: {
-                  error: true,
-                  message: e instanceof Error ? e.message : 'Error en proveedor',
-                } as any,
-              },
-            );
-
-            await qr2.commitTransaction();
-          } catch {
-            await qr2.rollbackTransaction();
-          } finally {
-            await qr2.release();
-          }
-        } catch {
-          // best-effort: si falla el reverso no bloqueamos la excepción original
-        }
-      }
-
+      await this.revertirTrasFalloProveedor(
+        authUser.clientId,
+        savedIdTransaction,
+        isCredit,
+        charged,
+        e,
+      );
       throw e;
-    } finally {
-      await queryRunner.release();
     }
   }
 }

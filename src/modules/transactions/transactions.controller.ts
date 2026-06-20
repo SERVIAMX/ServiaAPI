@@ -142,8 +142,11 @@ export class TransactionsController {
   })
   createTransaction(@Req() req: Request, @Body() dto: CreateTransactionDto) {
     const authUser = req.user as AuthUser | undefined;
+    if (!authUser?.userId || !authUser?.clientId) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
     return this.transactionsService.createTransaction(
-      { userId: authUser?.userId ?? 0, clientId: authUser?.clientId ?? 0 },
+      { userId: authUser.userId, clientId: authUser.clientId },
       dto,
     );
   }

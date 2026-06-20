@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import {
+  runInTransaction,
+  safeRelease,
+  safeRollback,
+} from '../../database/query-runner.util';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
@@ -177,14 +182,14 @@ export class WebhookMpService {
         amount: amount.toFixed(2),
       };
     } catch (e) {
-      await qr.rollbackTransaction();
+      await safeRollback(qr);
       this.logger.error(
         `[WebhookMP] Error: ${e instanceof Error ? e.message : e}`,
         e instanceof Error ? e.stack : undefined,
       );
       throw e;
     } finally {
-      await qr.release();
+      await safeRelease(qr);
     }
   }
 
@@ -229,49 +234,37 @@ export class WebhookMpService {
     }
 
     if (balanceHistoryId != null && yaAbono) {
-      const qr = this.dataSource.createQueryRunner();
-      await qr.connect();
-      await qr.startTransaction();
-      try {
-        const balanceHistoryMarkedPaid = await this.marcarBalanceHistoryPagado(
-          qr.manager,
+      let marked = false;
+      await runInTransaction(this.dataSource, async (manager) => {
+        marked = await this.marcarBalanceHistoryPagado(
+          manager,
           balanceHistoryId,
           client.id,
         );
-        await qr.commitTransaction();
-        this.logger.log(
-          `[WebhookMP] Reintento: solo marca BalanceHistory #${balanceHistoryId} (abono ya existía)`,
-        );
-        return { balanceCredited: false, balanceHistoryMarkedPaid };
-      } catch (e) {
-        await qr.rollbackTransaction();
-        throw e;
-      } finally {
-        await qr.release();
-      }
+      });
+      this.logger.log(
+        `[WebhookMP] Reintento: solo marca BalanceHistory #${balanceHistoryId} (abono ya existía)`,
+      );
+      return { balanceCredited: false, balanceHistoryMarkedPaid: marked };
     }
 
-    const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
-    try {
+    let balanceHistoryMarkedPaid = false;
+    await runInTransaction(this.dataSource, async (manager) => {
       const r = await this.acreditarBalanceCliente(
-        qr.manager,
+        manager,
         client,
         amount,
         balanceHistoryId,
       );
-      await qr.commitTransaction();
-      this.logger.log(
-        `[WebhookMP] Saldo acreditado (reintento): clientId=${client.id} +${amountStr}`,
-      );
-      return { balanceCredited: true, balanceHistoryMarkedPaid: r.balanceHistoryMarkedPaid };
-    } catch (e) {
-      await qr.rollbackTransaction();
-      throw e;
-    } finally {
-      await qr.release();
-    }
+      balanceHistoryMarkedPaid = r.balanceHistoryMarkedPaid;
+    });
+    this.logger.log(
+      `[WebhookMP] Saldo acreditado (reintento): clientId=${client.id} +${amountStr}`,
+    );
+    return {
+      balanceCredited: true,
+      balanceHistoryMarkedPaid,
+    };
   }
 
   /**

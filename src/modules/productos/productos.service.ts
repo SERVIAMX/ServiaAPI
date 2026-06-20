@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -41,6 +42,55 @@ interface MovivendorLoginResponse {
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
+/** Movivendor: id numérico entre 12 y 20 caracteres. */
+const MOVIVENDOR_TX_ID_RE = /^\d{12,20}$/;
+
+function parseBalanceValue(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Saldo en respuesta Movivendor `query/tx`.
+ * Suele venir en `data.balance`, `data.customer_balance` o `data.extra.new_balance`.
+ */
+function extraerBalanceSaldoExterno(json: unknown): number | null {
+  if (!isRecord(json)) return null;
+
+  const data = isRecord(json.data) ? json.data : null;
+  const extra =
+    data && isRecord(data.extra) ? (data.extra as Record<string, unknown>) : null;
+
+  const candidates: unknown[] = [
+    json.balance,
+    data?.balance,
+    data?.customer_balance,
+    data?.customerBalance,
+    extra?.new_balance,
+    extra?.newBalance,
+    extra?.old_balance,
+    extra?.oldBalance,
+    extra?.balance,
+    extra?.saldo,
+  ];
+
+  if (data && isRecord(data.data)) {
+    const nested = data.data as Record<string, unknown>;
+    candidates.push(
+      nested.balance,
+      nested.customer_balance,
+      isRecord(nested.extra) ? nested.extra.new_balance : undefined,
+    );
+  }
+
+  for (const v of candidates) {
+    const n = parseBalanceValue(v);
+    if (n !== null) return n;
+  }
+  return null;
 }
 
 function firstTruthyStr(...vals: unknown[]): string {
@@ -355,6 +405,99 @@ export class ProductosService {
     return randomInt(0, 1_000_000_000_000).toString().padStart(12, '0');
   }
 
+  /** Persiste code y respuesta cruda de Movivendor en Transactions. */
+  private async persistVentaMovivendorResponse(
+    idTransaction: number,
+    json: unknown,
+    logTag?: string,
+  ): Promise<void> {
+    const tag = logTag ?? '[ejecutarVenta]';
+    const codeStr =
+      isRecord(json) && typeof json.code === 'number'
+        ? String(json.code)
+        : '';
+    this.logger.log(
+      `${tag} Actualizando Transactions #${idTransaction} code=${codeStr || '—'}`,
+    );
+    await this.txRepo.update(
+      { idTransaction },
+      {
+        ...(codeStr ? { code: codeStr } : {}),
+        responseProvider: json as any,
+      },
+    );
+    this.logger.log(`${tag} Transactions #${idTransaction} actualizada`);
+  }
+
+  private isMovivendorTxId(id: string): boolean {
+    return MOVIVENDOR_TX_ID_RE.test(id.trim());
+  }
+
+  /**
+   * Resuelve el `id` que exige Movivendor (12–20 dígitos).
+   * Acepta `externalId`, `idTransaction` o un `id` corto (= IdTransaction interno).
+   */
+  private async resolverIdMovivendor(
+    rawId: string | undefined,
+    idTransaction: number | undefined,
+    opts: { autoGenerate?: boolean; logTag?: string } = {},
+  ): Promise<string> {
+    const tag = opts.logTag ?? '[resolverIdMovivendor]';
+    const trimmed = String(rawId ?? '').trim();
+    this.logger.log(
+      `${tag} Resolviendo id: rawId="${trimmed || '—'}" idTransaction=${idTransaction ?? '—'} autoGenerate=${!!opts.autoGenerate}`,
+    );
+
+    if (trimmed && this.isMovivendorTxId(trimmed)) {
+      this.logger.log(`${tag} Id válido recibido en body (${trimmed.length} dígitos)`);
+      return trimmed;
+    }
+
+    const pkCandidates = new Set<number>();
+    if (idTransaction != null && Number.isInteger(idTransaction) && idTransaction > 0) {
+      pkCandidates.add(idTransaction);
+    }
+    if (/^\d+$/.test(trimmed) && trimmed.length < 12) {
+      const n = Number(trimmed);
+      if (Number.isInteger(n) && n > 0) pkCandidates.add(n);
+    }
+
+    if (pkCandidates.size > 0) {
+      this.logger.log(
+        `${tag} Buscando externalId en Transactions para IdTransaction: [${[...pkCandidates].join(', ')}]`,
+      );
+    }
+
+    for (const pk of pkCandidates) {
+      const tx = await this.txRepo.findOne({
+        where: { idTransaction: pk },
+        select: { idTransaction: true, externalId: true },
+      });
+      this.logger.log(
+        `${tag} Transactions #${pk}: ${tx ? `externalId=${tx.externalId ?? 'null'}` : 'no encontrada'}`,
+      );
+      if (tx?.externalId && this.isMovivendorTxId(tx.externalId)) {
+        this.logger.log(`${tag} Usando externalId=${tx.externalId} (desde IdTransaction ${pk})`);
+        return tx.externalId;
+      }
+    }
+
+    if (opts.autoGenerate && !trimmed) {
+      const generated = this.generarIdConsultaSaldo12();
+      this.logger.log(`${tag} Id generado automáticamente: ${generated}`);
+      return generated;
+    }
+
+    this.logger.warn(
+      `${tag} No se pudo resolver id (rawId="${trimmed || '—'}", candidatos BD=${pkCandidates.size})`,
+    );
+    throw new BadRequestException(
+      'Id de transacción inválido para Movivendor: debe ser numérico y tener entre 12 y 20 caracteres. ' +
+        'Usa el `externalId` de la venta (no el IdTransaction interno). ' +
+        'Si creaste la venta con POST /transactions, toma `externalId` de la respuesta.',
+    );
+  }
+
   /**
    * Obtiene token de sesión en Movivendor (no expuesto vía HTTP).
    */
@@ -538,74 +681,144 @@ export class ProductosService {
 
   
   async ejecutarVenta(dto: EjecutarVentaDto): Promise<unknown> {
-    console.log('ejecutarVenta', dto);
+    const tag = '[ejecutarVenta]';
+    this.logger.log(`${tag} Inicio — DTO: ${JSON.stringify(dto)}`);
+
     const url = this.cfg('MOVIVENDOR_VENTA');
     if (!url) {
+      this.logger.error(`${tag} Falta variable MOVIVENDOR_VENTA`);
       throw new InternalServerErrorException(
         'Falta MOVIVENDOR_VENTA en configuración',
       );
     }
+    this.logger.log(`${tag} URL destino: ${url}`);
 
+    this.logger.log(`${tag} Obteniendo token Movivendor (login)...`);
     const token = await this.loginMovivendor();
+    this.logger.log(`${tag} Token obtenido (${token.length} chars)`);
+
     const terminal =
       dto.terminal?.trim() || this.cfg('MOVIVENDOR_TERMINAL') || '';
     if (!terminal) {
+      this.logger.error(
+        `${tag} Falta terminal en body y MOVIVENDOR_TERMINAL no está definido`,
+      );
       throw new InternalServerErrorException(
         'Falta terminal: envíalo en el body o define MOVIVENDOR_TERMINAL',
       );
     }
+    this.logger.log(`${tag} Terminal: ${terminal}`);
+
+    this.logger.log(
+      `${tag} Consultando saldo externo (MOVIVENDOR_CONSULTAR_SALDO_EXTERNO) antes de venta...`,
+    );
+    const { balance: saldoExterno } = await this.invocarConsultarSaldoExterno(
+      token,
+      terminal,
+      {
+        product: dto.product,
+        subprod: dto.subprod,
+        destination: dto.destination,
+        amount: '0',
+      },
+      tag,
+    );
+    this.validarMontoContraSaldoExterno(dto.amount, saldoExterno, tag);
+
+    this.logger.log(`${tag} Resolviendo id Movivendor...`);
+    const movivendorId = await this.resolverIdMovivendor(
+      dto.id,
+      dto.idTransaction,
+      { autoGenerate: true, logTag: tag },
+    );
+    this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
 
     const payload = {
       token,
-      id: dto.id,
+      id: movivendorId,
       terminal,
       product: dto.product,
       subprod: dto.subprod,
       destination: dto.destination,
       amount: dto.amount,
     };
+    const { token: _omit, ...payloadSafe } = payload;
+    this.logger.log(
+      `${tag} Payload enviado a Movivendor: ${JSON.stringify(payloadSafe)}`,
+    );
 
+    const startedAt = Date.now();
     let res: Response;
     try {
+      this.logger.log(`${tag} POST a Movivendor...`);
       res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(payload),
       });
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `${tag} Error de conexión con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
+      );
       throw new BadGatewayException('No se pudo conectar con Movivendor (venta)');
     }
+    this.logger.log(
+      `${tag} Respuesta HTTP: status=${res.status} ok=${res.ok} elapsed=${Date.now() - startedAt}ms`,
+    );
 
+    let rawText = '';
     let json: unknown;
     try {
-      json = await res.json();
-    } catch {
+      rawText = await res.text();
+      json = rawText ? JSON.parse(rawText) : null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `${tag} Respuesta JSON inválida (${Date.now() - startedAt}ms): ${msg} body=${rawText.slice(0, 500)}`,
+      );
       throw new BadGatewayException('Respuesta inválida de Movivendor (venta)');
     }
+
+    const code = isRecord(json) && typeof json.code === 'number' ? json.code : '—';
+    const message =
+      isRecord(json) && typeof json.message === 'string' ? json.message : '—';
+    this.logger.log(
+      `${tag} Body Movivendor: code=${code} message=${message} raw=${rawText.slice(0, 800)}`,
+    );
 
     if (!res.ok) {
       const msg =
         isRecord(json) && typeof json.message === 'string'
           ? json.message
           : `Movivendor venta HTTP ${res.status}`;
+      this.logger.error(`${tag} HTTP error: ${msg}`);
       throw new BadGatewayException(msg);
     }
 
-    // Si viene idTransaction, actualiza code y ResponseProvider en Transactions
     if (dto.idTransaction !== undefined && dto.idTransaction !== null) {
-      const code =
-        isRecord(json) && typeof json.code === 'number'
-          ? String(json.code)
-          : '';
-      await this.txRepo.update(
-        { idTransaction: dto.idTransaction },
-        {
-          ...(code ? { code } : {}),
-          responseProvider: json as any,
-        },
+      await this.persistVentaMovivendorResponse(
+        dto.idTransaction,
+        json,
+        tag,
       );
+    } else {
+      this.logger.log(`${tag} Venta Movivendor OK (sin idTransaction en body)`);
     }
 
+    if (isRecord(json) && typeof json.code === 'number' && json.code !== 0) {
+      const providerMsg =
+        typeof json.message === 'string' && json.message.trim()
+          ? json.message
+          : `code ${json.code}`;
+      this.logger.warn(`${tag} Proveedor rechazó venta: ${providerMsg}`);
+      throw new ConflictException({
+        message: 'Servicio no disponible',
+        data: json,
+      });
+    }
+
+    this.logger.log(`${tag} Fin OK (${Date.now() - startedAt}ms total)`);
     return json;
   }
 
@@ -628,9 +841,11 @@ export class ProductosService {
       );
     }
 
+    const movivendorId = await this.resolverIdMovivendor(dto.id, undefined);
+
     const payload = {
       token,
-      id: dto.id,
+      id: movivendorId,
       terminal,
       product: dto.product,
       subprod: dto.subprod,
@@ -680,20 +895,7 @@ export class ProductosService {
     const tag = '[consultarSaldoExterno]';
     this.logger.log(`${tag} DTO recibido: ${JSON.stringify(dto)}`);
 
-    const url = this.cfg('MOVIVENDOR_CONSULTAR_SALDO_EXTERNO');
-    if (!url) {
-      this.logger.error(
-        `${tag} Falta variable MOVIVENDOR_CONSULTAR_SALDO_EXTERNO`,
-      );
-      throw new InternalServerErrorException(
-        'Falta MOVIVENDOR_CONSULTAR_SALDO_EXTERNO en configuración',
-      );
-    }
-    this.logger.log(`${tag} URL destino: ${url}`);
-
     const token = await this.loginMovivendor();
- 
-
     const terminal =
       dto.terminal?.trim() || this.cfg('MOVIVENDOR_TERMINAL') || '';
     if (!terminal) {
@@ -705,14 +907,53 @@ export class ProductosService {
       );
     }
 
+    const { json } = await this.invocarConsultarSaldoExterno(
+      token,
+      terminal,
+      {
+        product: dto.product,
+        subprod: dto.subprod,
+        destination: dto.destination,
+        amount: dto.amount,
+      },
+      tag,
+    );
+    return json;
+  }
+
+  /**
+   * Movivendor `query/tx`. Reutilizable antes de venta (mismo token/terminal).
+   */
+  private async invocarConsultarSaldoExterno(
+    token: string,
+    terminal: string,
+    params: {
+      product: string;
+      subprod: string;
+      destination: string;
+      amount: string;
+    },
+    tag = '[consultarSaldoExterno]',
+  ): Promise<{ json: unknown; balance: number }> {
+    const url = this.cfg('MOVIVENDOR_CONSULTAR_SALDO_EXTERNO');
+    if (!url) {
+      this.logger.error(
+        `${tag} Falta variable MOVIVENDOR_CONSULTAR_SALDO_EXTERNO`,
+      );
+      throw new InternalServerErrorException(
+        'Falta MOVIVENDOR_CONSULTAR_SALDO_EXTERNO en configuración',
+      );
+    }
+    this.logger.log(`${tag} URL destino: ${url}`);
+
     const payload = {
       token,
       id: this.generarIdConsultaSaldo12(),
       terminal,
-      product: dto.product,
-      subprod: dto.subprod,
-      destination: dto.destination,
-      amount: dto.amount,
+      product: params.product,
+      subprod: params.subprod,
+      destination: params.destination,
+      amount: params.amount,
     };
     const { token: _omit, ...payloadSafe } = payload;
     this.logger.log(
@@ -754,18 +995,14 @@ export class ProductosService {
         'Respuesta inválida de Movivendor (consultar saldo externo)',
       );
     }
-    this.logger.log(
-      `${tag} JSON Movivendor: ${JSON.stringify(json)}`,
-    );
+    this.logger.log(`${tag} JSON Movivendor: ${JSON.stringify(json)}`);
 
     if (!res.ok) {
       const providerMsg =
         isRecord(json) && typeof json.message === 'string'
           ? json.message
           : `HTTP ${res.status}`;
-      this.logger.error(
-        `${tag} HTTP no OK (proveedor): ${providerMsg}`,
-      );
+      this.logger.error(`${tag} HTTP no OK (proveedor): ${providerMsg}`);
       throw new ConflictException({
         message: 'Servicio no disponible',
         data: json,
@@ -786,7 +1023,41 @@ export class ProductosService {
       });
     }
 
-    return json;
+    const balance = extraerBalanceSaldoExterno(json);
+    if (balance === null) {
+      this.logger.error(
+        `${tag} Respuesta sin balance parseable. JSON=${JSON.stringify(json).slice(0, 1500)}`,
+      );
+      throw new BadGatewayException(
+        'Respuesta inválida de Movivendor (consultar saldo externo: falta balance)',
+      );
+    }
+
+    this.logger.log(`${tag} balance=${balance}`);
+    return { json, balance };
+  }
+
+  /** Valida que el monto de venta cubra el saldo/deuda consultado en Movivendor. */
+  private validarMontoContraSaldoExterno(
+    amount: string,
+    balance: number,
+    logTag: string,
+  ): void {
+    const amountNum = Number(amount);
+    if (Number.isNaN(amountNum) || amountNum < 0) {
+      throw new BadRequestException('Amount inválido');
+    }
+    if (amountNum < balance) {
+      this.logger.warn(
+        `${logTag} Monto insuficiente: amount=${amountNum} balance=${balance}`,
+      );
+      throw new BadRequestException(
+        `El monto de la venta (${amountNum}) debe ser mayor o igual al saldo consultado (${balance})`,
+      );
+    }
+    this.logger.log(
+      `${logTag} Monto OK: amount=${amountNum} >= balance=${balance}`,
+    );
   }
 }
 

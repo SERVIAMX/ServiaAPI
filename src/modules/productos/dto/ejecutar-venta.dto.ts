@@ -11,14 +11,39 @@ export class EjecutarVentaDto {
   @IsOptional()
   idTransaction?: number;
 
-  @ApiProperty({
-    example: '999999000000000001',
-    description: 'Identificador de la transacción (negocio / correlación)',
+  @ApiPropertyOptional({
+    example: 'tiempo_aire',
+    description: 'Tipo de transacción (default: tiempo_aire)',
   })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  id!: string;
+  tipo?: string;
+
+  @ApiPropertyOptional({ example: 'Telcel' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
+  @ApiPropertyOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsOptional()
+  @IsString()
+  logo?: string;
+
+  @ApiPropertyOptional({
+    example: '00030003000606193249',
+    description:
+      'Identificador Movivendor (numérico, 12–20 dígitos). Si se omite o envías IdTransaction corto (ej. `516`), se resuelve desde `Transactions.externalId` o se genera uno nuevo.',
+  })
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '') return undefined;
+    return typeof value === 'string' ? value.trim() : String(value).trim();
+  })
+  @IsOptional()
+  @IsString()
+  id?: string;
 
   @ApiProperty({ example: 'A', description: 'SKU del producto (ej. oferta `service_sku`)' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

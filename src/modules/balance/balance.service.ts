@@ -7,9 +7,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomInt } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { runInTransaction } from '../../database/query-runner.util';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
@@ -20,6 +20,29 @@ import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
+function parseMovivendorBalance(json: unknown): number | null {
+  if (!isRecord(json)) return null;
+
+  if (typeof json.code === 'number' && json.code !== 0) {
+    return null;
+  }
+
+  const candidates: unknown[] = [
+    json.balance,
+    isRecord(json.data) ? json.data.balance : undefined,
+    isRecord(json.data) && isRecord(json.data.data)
+      ? json.data.data.balance
+      : undefined,
+  ];
+
+  for (const v of candidates) {
+    if (v === null || v === undefined || v === '') continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 interface MovivendorLoginData {
@@ -168,28 +191,21 @@ export class BalanceService {
       throw new BadGatewayException(msg);
     }
 
-    // Movivendor suele responder: { code, message, data: { balance } }
-    const balance =
+    if (
       isRecord(json) &&
-      isRecord(json.data) &&
-      isRecord(json.data.data) &&
-      typeof json.data.data.balance === 'number'
-        ? json.data.data.balance
-        : isRecord(json) &&
-            isRecord(json.data) &&
-            typeof json.data.balance === 'number'
-          ? json.data.balance
-          : isRecord(json) && typeof json.balance === 'number'
-            ? json.balance
-            : null;
-
-    if (balance === null) {
-      throw new BadGatewayException('Respuesta inválida de Movivendor (balance)');
+      typeof json.code === 'number' &&
+      json.code !== 0
+    ) {
+      const msg =
+        typeof json.message === 'string' && json.message.trim()
+          ? json.message
+          : `Movivendor balance code ${json.code}`;
+      throw new BadGatewayException(msg);
     }
 
-    // Temporal: si el proveedor devuelve 0, exponer un saldo aleatorio para pruebas
-    if (balance === 0) {
-      return { balance: randomInt(100, 100_000) };
+    const balance = parseMovivendorBalance(json);
+    if (balance === null) {
+      throw new BadGatewayException('Respuesta inválida de Movivendor (balance)');
     }
 
     return { balance };
@@ -221,11 +237,8 @@ export class BalanceService {
       }
     }
 
-    const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
-    try {
-      let cb = await qr.manager.findOne(CustomerBalance, {
+    return runInTransaction(this.dataSource, async (manager) => {
+      let cb = await manager.findOne(CustomerBalance, {
         where: { customer: { id: customerId } },
         relations: { customer: true },
       });
@@ -257,7 +270,7 @@ export class BalanceService {
         cb.balance = (currentBalance + amount).toFixed(2);
       }
 
-      await qr.manager.save(cb);
+      await manager.save(cb);
 
       const hist = this.balanceHistoryRepository.create({
         customer: client,
@@ -265,16 +278,10 @@ export class BalanceService {
         transactionType: requiresCredit ? 2 : 1,
         isPaid: requiresCredit ? 0 : 1,
       });
-      await qr.manager.save(hist);
+      await manager.save(hist);
 
-      await qr.commitTransaction();
       return cb;
-    } catch (e) {
-      await qr.rollbackTransaction();
-      throw e;
-    } finally {
-      await qr.release();
-    }
+    });
   }
 
   async obtenerCustomerBalance(clientId: number): Promise<{
