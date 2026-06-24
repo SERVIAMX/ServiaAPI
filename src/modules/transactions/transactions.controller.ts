@@ -20,6 +20,7 @@ import {
 import type { Request } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { CheckStatusDto } from './dto/check-status.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
 import { TransactionByExternalIdDto } from './dto/transaction-by-external-id.dto';
 import { TransactionListItemDto } from './dto/transaction-list-item.dto';
@@ -149,6 +150,17 @@ export class TransactionsController {
       { userId: authUser.userId, clientId: authUser.clientId },
       dto,
     );
+  }
+
+  @Post('check-status')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'CheckStatus',
+    description:
+      'Consulta estatus en Movivendor (`MOVIVENDOR_CHECK_STATUS` / `check/tx`). Body: `externalId`. Busca en `Transactions` o `TransactionsHistory` y arma el payload con SKU, destination, amount e id.',
+  })
+  checkStatus(@Body() dto: CheckStatusDto) {
+    return this.transactionsService.checkStatus(dto.externalId);
   }
 }
 

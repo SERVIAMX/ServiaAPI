@@ -15,6 +15,7 @@ import { ProductosService } from '../productos/productos.service';
 import { User } from '../users/entities/user.entity';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
+import { TransactionHistory } from './entities/transaction-history.entity';
 import { recargaEstadoFromCode, Transaction } from './entities/transaction.entity';
 
 function recargaEstadoFromMovivendor(json: unknown): 'exitosa' | 'fallida' | 'pendiente' {
@@ -105,6 +106,19 @@ function queryAffectedRows(result: unknown): number {
   return 0;
 }
 
+function amountForMovivendor(amount: string): string {
+  const n = Number(amount);
+  if (Number.isNaN(n)) {
+    throw new BadRequestException('Amount inválido en la transacción');
+  }
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+type TxRecord = Pick<
+  Transaction,
+  'externalId' | 'sku' | 'destination' | 'amount' | 'idTransaction'
+>;
+
 @Injectable()
 export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
@@ -112,6 +126,8 @@ export class TransactionsService {
   constructor(
     @InjectRepository(Transaction)
     private readonly txRepo: Repository<Transaction>,
+    @InjectRepository(TransactionHistory)
+    private readonly txHistoryRepo: Repository<TransactionHistory>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(Client)
@@ -380,6 +396,70 @@ export class TransactionsService {
       brand: t.brand,
       esTAE: normalizeIsCredit(t.esTAE),
     };
+  }
+
+  /**
+   * Consulta estatus en Movivendor (`check/tx`) usando datos guardados en BD.
+   */
+  async checkStatus(externalId: string) {
+    const ext = String(externalId ?? '').trim();
+    if (!/^\d+$/.test(ext) || ext.length > 20) {
+      throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
+    }
+
+    const tx = await this.findTxRecordByExternalId(ext);
+    const destination = tx.destination?.trim();
+    if (!destination) {
+      throw new BadRequestException(
+        'La transacción no tiene destination para consultar estatus',
+      );
+    }
+
+    this.logger.log(
+      `[checkStatus] externalId=${ext} idTransaction=${tx.idTransaction} sku=${tx.sku}`,
+    );
+
+    const movivendor = await this.productosService.estatusVenta({
+      id: tx.externalId,
+      product: tx.sku,
+      subprod: '0',
+      destination,
+      amount: amountForMovivendor(tx.amount),
+    });
+
+    return {
+      externalId: tx.externalId,
+      idTransaction: tx.idTransaction,
+      movivendor,
+    };
+  }
+
+  private async findTxRecordByExternalId(ext: string): Promise<TxRecord> {
+    const current = await this.txRepo.findOne({
+      where: { externalId: ext },
+      select: {
+        idTransaction: true,
+        externalId: true,
+        sku: true,
+        destination: true,
+        amount: true,
+      },
+    });
+    if (current) return current;
+
+    const history = await this.txHistoryRepo.findOne({
+      where: { externalId: ext },
+      select: {
+        idTransaction: true,
+        externalId: true,
+        sku: true,
+        destination: true,
+        amount: true,
+      },
+    });
+    if (history) return history;
+
+    throw new NotFoundException('Transacción no encontrada');
   }
 
   async createTransaction(authUser: { userId: number; clientId: number }, dto: CreateTransactionDto) {

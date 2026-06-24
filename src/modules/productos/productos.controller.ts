@@ -94,7 +94,7 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Estatus de venta (Movivendor check/tx)',
     description:
-      'Envía POST a `MOVIVENDOR_ESTATUS_VENTA` con token por login en servidor. Body: `id`, `product`, `subprod`, `destination`, `amount`. El `terminal` se toma solo de `MOVIVENDOR_TERMINAL` en `.env` (no se envía en el body).',
+      'Envía POST a `MOVIVENDOR_CHECK_STATUS` (o `MOVIVENDOR_ESTATUS_VENTA`) con token por login en servidor. Body: `id`, `product`, `subprod`, `destination`, `amount`. El `terminal` se toma solo de `MOVIVENDOR_TERMINAL` en `.env` (no se envía en el body).',
   })
   estatusVenta(@Body() dto: EstatusVentaDto) {
     return this.productosService.estatusVenta(dto);

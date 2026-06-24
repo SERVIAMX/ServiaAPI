@@ -5,12 +5,19 @@ import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosModule } from '../productos/productos.module';
 import { User } from '../users/entities/user.entity';
 import { Transaction } from './entities/transaction.entity';
+import { TransactionHistory } from './entities/transaction-history.entity';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Transaction, User, Client, CustomerBalance]),
+    TypeOrmModule.forFeature([
+      Transaction,
+      TransactionHistory,
+      User,
+      Client,
+      CustomerBalance,
+    ]),
     forwardRef(() => ProductosModule),
   ],
   controllers: [TransactionsController],

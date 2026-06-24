@@ -826,10 +826,12 @@ export class ProductosService {
    * POST Movivendor `check/tx` (estatus venta): token por login; `terminal` solo desde `MOVIVENDOR_TERMINAL`.
    */
   async estatusVenta(dto: EstatusVentaDto): Promise<unknown> {
-    const url = this.cfg('MOVIVENDOR_ESTATUS_VENTA');
+    const url =
+      this.cfg('MOVIVENDOR_CHECK_STATUS') ||
+      this.cfg('MOVIVENDOR_ESTATUS_VENTA');
     if (!url) {
       throw new InternalServerErrorException(
-        'Falta MOVIVENDOR_ESTATUS_VENTA en configuración',
+        'Falta MOVIVENDOR_CHECK_STATUS en configuración',
       );
     }
 
@@ -882,7 +884,7 @@ export class ProductosService {
           : `Movivendor estatus venta HTTP ${res.status}`;
       throw new BadGatewayException(msg);
     }
-
+    console.log('json', json);
     return json;
   }
 
