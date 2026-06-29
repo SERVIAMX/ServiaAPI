@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, Repository } from 'typeorm';
 import { runInTransaction } from '../../database/query-runner.util';
+import { MovivendorTimeoutException } from '../../common/exceptions/movivendor-timeout.exception';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosService } from '../productos/productos.service';
@@ -117,7 +118,20 @@ function amountForMovivendor(amount: string): string {
 type TxRecord = Pick<
   Transaction,
   'externalId' | 'sku' | 'destination' | 'amount' | 'idTransaction'
->;
+> & { source: 'current' | 'history' };
+
+/** Persiste code/responseProvider tras check-status (no aplica a 88 ni 89). */
+function shouldPersistCheckStatusCode(code: unknown): boolean {
+  if (code === undefined || code === null) return false;
+  const c = String(code).trim();
+  if (c === '88' || c === '89') return false;
+  return true;
+}
+
+function movivendorCodeToString(code: unknown): string {
+  if (code === undefined || code === null) return '';
+  return String(code).trim();
+}
 
 @Injectable()
 export class TransactionsService {
@@ -427,11 +441,44 @@ export class TransactionsService {
       amount: amountForMovivendor(tx.amount),
     });
 
+    await this.persistCheckStatusResponse(tx, movivendor);
+
     return {
       externalId: tx.externalId,
       idTransaction: tx.idTransaction,
       movivendor,
     };
+  }
+
+  private async persistCheckStatusResponse(
+    tx: TxRecord,
+    movivendor: unknown,
+  ): Promise<void> {
+    if (typeof movivendor !== 'object' || movivendor === null) return;
+
+    const rec = movivendor as Record<string, unknown>;
+    if (!shouldPersistCheckStatusCode(rec.code)) {
+      this.logger.log(
+        `[checkStatus] Sin actualizar BD: code=${movivendorCodeToString(rec.code)} (88/89 no persisten)`,
+      );
+      return;
+    }
+
+    const codeStr = movivendorCodeToString(rec.code);
+    const update = {
+      code: codeStr,
+      responseProvider: movivendor as object,
+    };
+
+    if (tx.source === 'current') {
+      await this.txRepo.update({ idTransaction: tx.idTransaction }, update);
+    } else {
+      await this.txHistoryRepo.update({ idTransaction: tx.idTransaction }, update);
+    }
+
+    this.logger.log(
+      `[checkStatus] Actualizado ${tx.source === 'current' ? 'Transactions' : 'TransactionsHistory'} #${tx.idTransaction} code=${codeStr}`,
+    );
   }
 
   private async findTxRecordByExternalId(ext: string): Promise<TxRecord> {
@@ -445,7 +492,7 @@ export class TransactionsService {
         amount: true,
       },
     });
-    if (current) return current;
+    if (current) return { ...current, source: 'current' };
 
     const history = await this.txHistoryRepo.findOne({
       where: { externalId: ext },
@@ -457,7 +504,7 @@ export class TransactionsService {
         amount: true,
       },
     });
-    if (history) return history;
+    if (history) return { ...history, source: 'history' };
 
     throw new NotFoundException('Transacción no encontrada');
   }
@@ -570,6 +617,20 @@ export class TransactionsService {
         movivendor: ventaRes,
       };
     } catch (e) {
+      if (e instanceof MovivendorTimeoutException) {
+        this.logger.warn(
+          `[createTransaction] Timeout proveedor tx #${savedIdTransaction} externalId=${id}: ${e.message}`,
+        );
+        return this.respuestaTransaccionPendienteProveedor({
+          idTransaction: savedIdTransaction,
+          externalId: id,
+          isCredit,
+          esTAE,
+          charged,
+          dto,
+          timeout: e,
+        });
+      }
       await this.revertirTrasFalloProveedor(
         authUser.clientId,
         savedIdTransaction,
@@ -579,6 +640,68 @@ export class TransactionsService {
       );
       throw e;
     }
+  }
+
+  private buildMovivendorPendiente(
+    externalId: string,
+    dto: CreateTransactionDto,
+    timeout: MovivendorTimeoutException,
+  ) {
+    const amountNum = Number(dto.amount);
+    const subprodNum = Number(dto.subprod);
+    return {
+      code: null,
+      message: 'Timeout en proveedor (sin confirmación)',
+      data: {
+        id: externalId,
+        channel: null,
+        ident: null,
+        date: null,
+        amount: Number.isFinite(amountNum) ? amountNum : dto.amount,
+        product: dto.product,
+        subprod: Number.isFinite(subprodNum) ? subprodNum : dto.subprod,
+        pin: null,
+        customer_balance: null,
+        confirmation: null,
+        trace: null,
+        extra: timeout.detail ? { detail: timeout.detail } : null,
+        elapsed: null,
+        clave: null,
+      },
+    };
+  }
+
+  private async respuestaTransaccionPendienteProveedor(params: {
+    idTransaction: number;
+    externalId: string;
+    isCredit: number;
+    esTAE: number;
+    charged: number;
+    dto: CreateTransactionDto;
+    timeout: MovivendorTimeoutException;
+  }) {
+    const movivendor = this.buildMovivendorPendiente(
+      params.externalId,
+      params.dto,
+      params.timeout,
+    );
+
+    await this.txRepo.update(
+      { idTransaction: params.idTransaction },
+      { responseProvider: movivendor as object },
+    );
+
+    const isCreditNorm = normalizeIsCredit(params.isCredit);
+    return {
+      idTransaction: params.idTransaction,
+      externalId: params.externalId,
+      isCredit: isCreditNorm,
+      esTAE: params.esTAE,
+      tipoCobro: tipoCobroFromIsCredit(isCreditNorm),
+      chargedAmount: params.charged.toFixed(2),
+      recargaEstado: 'pendiente' as const,
+      movivendor,
+    };
   }
 }
 

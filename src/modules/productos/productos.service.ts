@@ -10,6 +10,10 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'node:crypto';
 import { Repository } from 'typeorm';
+import {
+  MovivendorTimeoutException,
+  looksLikeMovivendorGatewayTimeout,
+} from '../../common/exceptions/movivendor-timeout.exception';
 import type { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import type {
   MarcasListaPaginatedResponse,
@@ -42,6 +46,13 @@ interface MovivendorLoginResponse {
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
+/** Genera curl en una sola línea, listo para copiar (Movivendor). */
+function formatMovivendorCurl(url: string, payload: Record<string, unknown>): string {
+  const body = JSON.stringify(payload);
+  const escaped = body.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `curl -X POST "${url}" -H "Content-Type: application/json" -d "${escaped}"`;
 }
 
 /** Movivendor: id numérico entre 12 y 20 caracteres. */
@@ -400,6 +411,34 @@ export class ProductosService {
     return typeof v === 'string' ? v.trim() : v;
   }
 
+  private logMovivendorCurl(
+    logTag: string,
+    label: string,
+    url: string,
+    payload: Record<string, unknown>,
+  ): void {
+    this.logger.log(
+      `${logTag} CURL ${label}: ${formatMovivendorCurl(url, payload)}`,
+    );
+  }
+
+  private throwMovivendorTransportError(
+    operation: string,
+    res: Response | null,
+    rawText: string,
+    fallbackMessage: string,
+  ): never {
+    const status = res?.status;
+    if (looksLikeMovivendorGatewayTimeout(status, rawText)) {
+      throw new MovivendorTimeoutException(
+        operation,
+        status,
+        rawText.slice(0, 500) || undefined,
+      );
+    }
+    throw new BadGatewayException(fallbackMessage);
+  }
+
   /** Correlación numérica de 12 dígitos para consulta de saldo (Movivendor `id`). */
   private generarIdConsultaSaldo12(): string {
     return randomInt(0, 1_000_000_000_000).toString().padStart(12, '0');
@@ -709,22 +748,6 @@ export class ProductosService {
     }
     this.logger.log(`${tag} Terminal: ${terminal}`);
 
-    this.logger.log(
-      `${tag} Consultando saldo externo (MOVIVENDOR_CONSULTAR_SALDO_EXTERNO) antes de venta...`,
-    );
-    const { balance: saldoExterno } = await this.invocarConsultarSaldoExterno(
-      token,
-      terminal,
-      {
-        product: dto.product,
-        subprod: dto.subprod,
-        destination: dto.destination,
-        amount: '0',
-      },
-      tag,
-    );
-    this.validarMontoContraSaldoExterno(dto.amount, saldoExterno, tag);
-
     this.logger.log(`${tag} Resolviendo id Movivendor...`);
     const movivendorId = await this.resolverIdMovivendor(
       dto.id,
@@ -732,6 +755,23 @@ export class ProductosService {
       { autoGenerate: true, logTag: tag },
     );
     this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
+
+    this.logger.log(
+      `${tag} Consultando saldo externo (MOVIVENDOR_CONSULTAR_SALDO_EXTERNO) antes de venta...`,
+    );
+    const { balance: saldoExterno } = await this.invocarConsultarSaldoExterno(
+      token,
+      terminal,
+      {
+        id: movivendorId,
+        product: dto.product,
+        subprod: dto.subprod,
+        destination: dto.destination,
+        amount: dto.amount,
+      },
+      tag,
+    );
+    this.validarMontoContraSaldoExterno(dto.amount, saldoExterno, tag);
 
     const payload = {
       token,
@@ -746,6 +786,7 @@ export class ProductosService {
     this.logger.log(
       `${tag} Payload enviado a Movivendor: ${JSON.stringify(payloadSafe)}`,
     );
+    this.logMovivendorCurl(tag, 'Movivendor do/tx (venta)', url, payload);
 
     const startedAt = Date.now();
     let res: Response;
@@ -761,7 +802,7 @@ export class ProductosService {
       this.logger.error(
         `${tag} Error de conexión con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
       );
-      throw new BadGatewayException('No se pudo conectar con Movivendor (venta)');
+      throw new MovivendorTimeoutException('venta (conexión)', undefined, msg);
     }
     this.logger.log(
       `${tag} Respuesta HTTP: status=${res.status} ok=${res.ok} elapsed=${Date.now() - startedAt}ms`,
@@ -777,7 +818,12 @@ export class ProductosService {
       this.logger.error(
         `${tag} Respuesta JSON inválida (${Date.now() - startedAt}ms): ${msg} body=${rawText.slice(0, 500)}`,
       );
-      throw new BadGatewayException('Respuesta inválida de Movivendor (venta)');
+      this.throwMovivendorTransportError(
+        'venta',
+        res,
+        rawText,
+        'Respuesta inválida de Movivendor (venta)',
+      );
     }
 
     const code = isRecord(json) && typeof json.code === 'number' ? json.code : '—';
@@ -793,6 +839,9 @@ export class ProductosService {
           ? json.message
           : `Movivendor venta HTTP ${res.status}`;
       this.logger.error(`${tag} HTTP error: ${msg}`);
+      if (looksLikeMovivendorGatewayTimeout(res.status, rawText)) {
+        throw new MovivendorTimeoutException('venta', res.status, msg);
+      }
       throw new BadGatewayException(msg);
     }
 
@@ -884,7 +933,7 @@ export class ProductosService {
           : `Movivendor estatus venta HTTP ${res.status}`;
       throw new BadGatewayException(msg);
     }
-    console.log('json', json);
+
     return json;
   }
 
@@ -930,6 +979,7 @@ export class ProductosService {
     token: string,
     terminal: string,
     params: {
+      id?: string;
       product: string;
       subprod: string;
       destination: string;
@@ -948,9 +998,21 @@ export class ProductosService {
     }
     this.logger.log(`${tag} URL destino: ${url}`);
 
+    const consultaId =
+      params.id && this.isMovivendorTxId(params.id)
+        ? params.id.trim()
+        : this.generarIdConsultaSaldo12();
+    if (params.id && consultaId !== params.id.trim()) {
+      this.logger.warn(
+        `${tag} id recibido inválido (${params.id}); se generó id de consulta ${consultaId}`,
+      );
+    } else if (params.id) {
+      this.logger.log(`${tag} Usando externalId en consulta: ${consultaId}`);
+    }
+
     const payload = {
       token,
-      id: this.generarIdConsultaSaldo12(),
+      id: consultaId,
       terminal,
       product: params.product,
       subprod: params.subprod,
@@ -961,6 +1023,7 @@ export class ProductosService {
     this.logger.log(
       `${tag} Payload enviado a Movivendor: ${JSON.stringify(payloadSafe)}`,
     );
+    this.logMovivendorCurl(tag, 'Movivendor query/tx (saldo externo)', url, payload);
 
     const startedAt = Date.now();
     let res: Response;
@@ -975,8 +1038,10 @@ export class ProductosService {
       this.logger.error(
         `${tag} Error de conexión con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
       );
-      throw new BadGatewayException(
-        'No se pudo conectar con Movivendor (consultar saldo externo)',
+      throw new MovivendorTimeoutException(
+        'consultar saldo externo (conexión)',
+        undefined,
+        msg,
       );
     }
     this.logger.log(
@@ -993,7 +1058,10 @@ export class ProductosService {
       this.logger.error(
         `${tag} Respuesta no parseable como JSON. Error=${msg} | raw=${rawText.slice(0, 1000)}`,
       );
-      throw new BadGatewayException(
+      this.throwMovivendorTransportError(
+        'consultar saldo externo',
+        res,
+        rawText,
         'Respuesta inválida de Movivendor (consultar saldo externo)',
       );
     }
@@ -1005,6 +1073,13 @@ export class ProductosService {
           ? json.message
           : `HTTP ${res.status}`;
       this.logger.error(`${tag} HTTP no OK (proveedor): ${providerMsg}`);
+      if (looksLikeMovivendorGatewayTimeout(res.status, rawText)) {
+        throw new MovivendorTimeoutException(
+          'consultar saldo externo',
+          res.status,
+          providerMsg,
+        );
+      }
       throw new ConflictException({
         message: 'Servicio no disponible',
         data: json,
