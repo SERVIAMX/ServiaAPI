@@ -27,6 +27,17 @@ function recargaEstadoFromMovivendor(json: unknown): 'exitosa' | 'fallida' | 'pe
   );
 }
 
+function isMovivendorProviderError(json: unknown): boolean {
+  if (typeof json !== 'object' || json === null) return false;
+  const code = (json as Record<string, unknown>).code;
+  if (typeof code === 'number') return code !== 0;
+  if (typeof code === 'string') {
+    const c = code.trim();
+    return c !== '' && c !== '0' && c !== '00';
+  }
+  return false;
+}
+
 function movivendorPayloadFromError(error: unknown): {
   code?: string;
   responseProvider: unknown;
@@ -206,6 +217,32 @@ export class TransactionsService {
       await manager.query(
         'UPDATE CustomerBalance SET CreditBalance = CreditBalance + ? WHERE CustomerId = ?',
         [amt, clientId],
+      );
+    }
+  }
+
+  /** Reintegra saldo tras rechazo del proveedor (code/responseProvider ya guardados). */
+  private async revertirSaldoTrasRechazoProveedor(
+    clientId: number,
+    isCreditUsed: number,
+    charged: number,
+    idTransaction: number,
+  ): Promise<void> {
+    try {
+      await runInTransaction(this.dataSource, async (manager) => {
+        await this.reintegrarSaldoCliente(
+          manager,
+          clientId,
+          charged,
+          isCreditUsed,
+        );
+      });
+      this.logger.log(
+        `[createTransaction] Saldo revertido tras rechazo proveedor (tx #${idTransaction})`,
+      );
+    } catch (revertErr) {
+      this.logger.error(
+        `[createTransaction] No se pudo revertir saldo (tx #${idTransaction}): ${revertErr instanceof Error ? revertErr.message : revertErr}`,
       );
     }
   }
@@ -602,11 +639,12 @@ export class TransactionsService {
         subprod: dto.subprod,
         destination: dto.destination,
         amount: dto.amount,
+        tipo: dto.tipo,
         idTransaction: savedIdTransaction,
       });
 
       const isCreditNorm = normalizeIsCredit(isCredit);
-      return {
+      const base = {
         idTransaction: savedIdTransaction,
         externalId: id,
         isCredit: isCreditNorm,
@@ -616,6 +654,17 @@ export class TransactionsService {
         recargaEstado: recargaEstadoFromMovivendor(ventaRes),
         movivendor: ventaRes,
       };
+
+      if (isMovivendorProviderError(ventaRes)) {
+        await this.revertirSaldoTrasRechazoProveedor(
+          authUser.clientId,
+          isCredit,
+          charged,
+          savedIdTransaction,
+        );
+      }
+
+      return base;
     } catch (e) {
       if (e instanceof MovivendorTimeoutException) {
         this.logger.warn(

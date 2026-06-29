@@ -756,23 +756,6 @@ export class ProductosService {
     );
     this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
 
-    this.logger.log(
-      `${tag} Consultando saldo externo (MOVIVENDOR_CONSULTAR_SALDO_EXTERNO) antes de venta...`,
-    );
-    const { balance: saldoExterno } = await this.invocarConsultarSaldoExterno(
-      token,
-      terminal,
-      {
-        id: movivendorId,
-        product: dto.product,
-        subprod: dto.subprod,
-        destination: dto.destination,
-        amount: dto.amount,
-      },
-      tag,
-    );
-    this.validarMontoContraSaldoExterno(dto.amount, saldoExterno, tag);
-
     const payload = {
       token,
       id: movivendorId,
@@ -861,13 +844,9 @@ export class ProductosService {
           ? json.message
           : `code ${json.code}`;
       this.logger.warn(`${tag} Proveedor rechazó venta: ${providerMsg}`);
-      throw new ConflictException({
-        message: 'Servicio no disponible',
-        data: json,
-      });
     }
 
-    this.logger.log(`${tag} Fin OK (${Date.now() - startedAt}ms total)`);
+    this.logger.log(`${tag} Fin (${Date.now() - startedAt}ms total)`);
     return json;
   }
 
@@ -1112,29 +1091,6 @@ export class ProductosService {
 
     this.logger.log(`${tag} balance=${balance}`);
     return { json, balance };
-  }
-
-  /** Valida que el monto de venta cubra el saldo/deuda consultado en Movivendor. */
-  private validarMontoContraSaldoExterno(
-    amount: string,
-    balance: number,
-    logTag: string,
-  ): void {
-    const amountNum = Number(amount);
-    if (Number.isNaN(amountNum) || amountNum < 0) {
-      throw new BadRequestException('Amount inválido');
-    }
-    if (amountNum < balance) {
-      this.logger.warn(
-        `${logTag} Monto insuficiente: amount=${amountNum} balance=${balance}`,
-      );
-      throw new BadRequestException(
-        `El monto de la venta (${amountNum}) debe ser mayor o igual al saldo consultado (${balance})`,
-      );
-    }
-    this.logger.log(
-      `${logTag} Monto OK: amount=${amountNum} >= balance=${balance}`,
-    );
   }
 }
 
