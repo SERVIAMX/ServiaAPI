@@ -58,6 +58,13 @@ function formatMovivendorCurl(url: string, payload: Record<string, unknown>): st
 /** Movivendor: id numérico entre 12 y 20 caracteres. */
 const MOVIVENDOR_TX_ID_RE = /^\d{12,20}$/;
 
+/** Espera máxima de MOVIVENDOR_VENTA antes de responder pendiente al cliente (POST /transactions). */
+const MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS = 20_000;
+
+/** Rango de `extra.delay` enviado a Movivendor en do/tx (ms). */
+const MOVIVENDOR_VENTA_DELAY_MIN_MS = 20_000;
+const MOVIVENDOR_VENTA_DELAY_MAX_MS = 40_000;
+
 function parseBalanceValue(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
@@ -444,6 +451,14 @@ export class ProductosService {
     return randomInt(0, 1_000_000_000_000).toString().padStart(12, '0');
   }
 
+  /** `extra.delay` aleatorio para do/tx (inclusive 20000–40000 ms). */
+  private generarDelayExtraMovivendorVenta(): number {
+    return randomInt(
+      MOVIVENDOR_VENTA_DELAY_MIN_MS,
+      MOVIVENDOR_VENTA_DELAY_MAX_MS + 1,
+    );
+  }
+
   /** Persiste code y respuesta cruda de Movivendor en Transactions. */
   private async persistVentaMovivendorResponse(
     idTransaction: number,
@@ -756,6 +771,9 @@ export class ProductosService {
     );
     this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
 
+    const movivendorDelayMs = this.generarDelayExtraMovivendorVenta();
+    this.logger.log(`${tag} extra.delay=${movivendorDelayMs} (aleatorio 20000–40000)`);
+
     const payload = {
       token,
       id: movivendorId,
@@ -764,6 +782,7 @@ export class ProductosService {
       subprod: dto.subprod,
       destination: dto.destination,
       amount: dto.amount,
+      extra: { delay: movivendorDelayMs },
     };
     const { token: _omit, ...payloadSafe } = payload;
     this.logger.log(
@@ -772,20 +791,35 @@ export class ProductosService {
     this.logMovivendorCurl(tag, 'Movivendor do/tx (venta)', url, payload);
 
     const startedAt = Date.now();
+    const controller = new AbortController();
+    const clientTimeoutId = setTimeout(() => {
+      controller.abort();
+    }, MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS);
+
     let res: Response;
     try {
-      this.logger.log(`${tag} POST a Movivendor...`);
+      this.logger.log(
+        `${tag} POST a Movivendor (timeout cliente ${MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS}ms)...`,
+      );
       res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const isAbort = err instanceof Error && err.name === 'AbortError';
       this.logger.error(
-        `${tag} Error de conexión con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
+        `${tag} ${isAbort ? 'Timeout cliente' : 'Error de conexión'} con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
       );
-      throw new MovivendorTimeoutException('venta (conexión)', undefined, msg);
+      throw new MovivendorTimeoutException(
+        isAbort ? 'venta (límite 20s cliente)' : 'venta (conexión)',
+        undefined,
+        isAbort ? 'Sin respuesta de Movivendor en 20 segundos' : msg,
+      );
+    } finally {
+      clearTimeout(clientTimeoutId);
     }
     this.logger.log(
       `${tag} Respuesta HTTP: status=${res.status} ok=${res.ok} elapsed=${Date.now() - startedAt}ms`,
