@@ -13,7 +13,11 @@ export class CreateInitialSchema1730169600000 implements MigrationInterface {
       .map((s) => s.trim())
       .filter((s) => s.length > 0 && !s.startsWith('--'));
 
+    const skip = (stmt: string) =>
+      /^CREATE\s+DATABASE\b/i.test(stmt) || /^USE\s+/i.test(stmt);
+
     for (const stmt of statements) {
+      if (skip(stmt)) continue;
       await queryRunner.query(stmt);
     }
   }

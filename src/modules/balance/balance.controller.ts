@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BalanceService } from 'src/modules/balance/balance.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -7,6 +7,9 @@ import { CurrentUserPayload } from '../../common/interfaces/current-user-payload
 import { AdjustCustomerBalanceDto } from './dto/adjust-customer-balance.dto';
 import { FilterBalanceHistoryDto } from './dto/filter-balance-history.dto';
 import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
+import type { Request } from 'express';
+
+type AuthUser = { userId: number; clientId: number; roleId?: number };
 
 @ApiTags('Balance')
 @Controller('balance')
@@ -31,8 +34,15 @@ export class BalanceController {
     description:
       'Suma Amount sobre CustomerBalance por CustomerId. Si RequiresCredit=true suma a CreditBalance (validando CreditLine). No permite crédito si ya existe BalanceHistory con isPaid=0. Si RequiresCredit=false suma a Balance (pagado).',
   })
-  ajustarSaldo(@Body() dto: AdjustCustomerBalanceDto) {
-    return this.balanceService.ajustarSaldoCliente(dto);
+  ajustarSaldo(@Req() req: Request, @Body() dto: AdjustCustomerBalanceDto) {
+    const authUser = req.user as AuthUser | undefined;
+    if (!authUser?.userId) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+    return this.balanceService.ajustarSaldoCliente(dto, {
+      userId: authUser.userId,
+      clientId: authUser.clientId,
+    });
   }
 
   @Get('customerBalance')

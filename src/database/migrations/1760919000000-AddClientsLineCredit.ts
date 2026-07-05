@@ -1,9 +1,16 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { columnExists } from '../migration-helpers';
 
 export class AddClientsLineCredit1760919000000 implements MigrationInterface {
   name = 'AddClientsLineCredit1760919000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (
+      (await columnExists(queryRunner, 'Clients', 'LineCredit')) ||
+      (await columnExists(queryRunner, 'Clients', 'CreditLine'))
+    ) {
+      return;
+    }
     await queryRunner.query(`
       ALTER TABLE \`Clients\`
       ADD COLUMN \`LineCredit\` DECIMAL(10,2) NULL AFTER \`DeletedAt\`

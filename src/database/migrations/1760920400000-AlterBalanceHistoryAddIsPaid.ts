@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { columnExists } from '../migration-helpers';
 
 export class AlterBalanceHistoryAddIsPaid1760920400000
   implements MigrationInterface
@@ -6,6 +7,9 @@ export class AlterBalanceHistoryAddIsPaid1760920400000
   name = 'AlterBalanceHistoryAddIsPaid1760920400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (await columnExists(queryRunner, 'BalanceHistory', 'IsPaid')) {
+      return;
+    }
     await queryRunner.query(`
       ALTER TABLE \`BalanceHistory\`
       ADD COLUMN \`IsPaid\` TINYINT NULL AFTER \`TransactionType\`

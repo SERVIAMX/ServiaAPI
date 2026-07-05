@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { ProductosModule } from '../productos/productos.module';
 import { User } from '../users/entities/user.entity';
 import { Transaction } from './entities/transaction.entity';
@@ -19,6 +20,7 @@ import { TransactionsService } from './transactions.service';
       CustomerBalance,
     ]),
     forwardRef(() => ProductosModule),
+    AuditLogModule,
   ],
   controllers: [TransactionsController],
   providers: [TransactionsService],

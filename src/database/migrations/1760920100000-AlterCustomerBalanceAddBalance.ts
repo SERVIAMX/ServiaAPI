@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { columnExists } from '../migration-helpers';
 
 export class AlterCustomerBalanceAddBalance1760920100000
   implements MigrationInterface
@@ -6,6 +7,9 @@ export class AlterCustomerBalanceAddBalance1760920100000
   name = 'AlterCustomerBalanceAddBalance1760920100000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (await columnExists(queryRunner, 'CustomerBalance', 'Balance')) {
+      return;
+    }
     await queryRunner.query(`
       ALTER TABLE \`CustomerBalance\`
       ADD COLUMN \`Balance\` DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER \`CreditBalance\`

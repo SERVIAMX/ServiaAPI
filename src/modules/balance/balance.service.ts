@@ -10,6 +10,12 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { runInTransaction } from '../../database/query-runner.util';
+import { calcularSaldoAcreditadoConBonificacion } from '../../common/utils/client-balance-bonus.util';
+import {
+  AUDIT_OPERATION,
+  AUDIT_STATUS,
+} from '../audit-log/audit-log.types';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
@@ -71,6 +77,7 @@ export class BalanceService {
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
     private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   private cfg(key: string): string | undefined {
@@ -211,11 +218,15 @@ export class BalanceService {
     return { balance };
   }
 
-  async ajustarSaldoCliente(dto: AdjustCustomerBalanceDto) {
+  async ajustarSaldoCliente(
+    dto: AdjustCustomerBalanceDto,
+    actor?: { userId: number; clientId: number },
+  ) {
     const customerId = dto.customerId;
     const amount = dto.amount;
     const requiresCredit = dto.requiresCredit;
 
+    try {
     const client = await this.clientRepository.findOne({
       where: { id: customerId },
     });
@@ -254,20 +265,25 @@ export class BalanceService {
       const currentCredit = Number(cb.creditBalance ?? 0) || 0;
       const currentBalance = Number(cb.balance ?? 0) || 0;
 
+      const acreditado = calcularSaldoAcreditadoConBonificacion(
+        amount,
+        client.discountPercentage,
+      );
+
       if (requiresCredit) {
         const creditLine = client.creditLine ? Number(client.creditLine) : null;
         if (creditLine === null || Number.isNaN(creditLine)) {
           throw new BadRequestException('Cliente sin CreditLine configurado');
         }
         const available = creditLine - currentCredit;
-        if (amount > available) {
+        if (acreditado > available) {
           throw new BadRequestException(
-            'El Amount excede la línea de crédito disponible',
+            'El monto acreditado (con bonificación) excede la línea de crédito disponible',
           );
         }
-        cb.creditBalance = (currentCredit + amount).toFixed(2);
+        cb.creditBalance = (currentCredit + acreditado).toFixed(2);
       } else {
-        cb.balance = (currentBalance + amount).toFixed(2);
+        cb.balance = (currentBalance + acreditado).toFixed(2);
       }
 
       await manager.save(cb);
@@ -278,10 +294,39 @@ export class BalanceService {
         transactionType: requiresCredit ? 2 : 1,
         isPaid: requiresCredit ? 0 : 1,
       });
-      await manager.save(hist);
+      const savedHist = await manager.save(hist);
+
+      await this.auditLogService.record({
+        operationType: AUDIT_OPERATION.BALANCE_ASSIGN,
+        status: AUDIT_STATUS.SUCCESS,
+        clientId: customerId,
+        userId: actor?.userId ?? null,
+        referenceId: String(savedHist.id),
+        amount: dto.amount,
+        requestPayload: dto,
+        responsePayload: {
+          balance: cb.balance,
+          creditBalance: cb.creditBalance,
+          acreditado: acreditado.toFixed(2),
+          requiresCredit,
+          balanceHistoryId: savedHist.id,
+        },
+      });
 
       return cb;
     });
+    } catch (e) {
+      await this.auditLogService.record({
+        operationType: AUDIT_OPERATION.BALANCE_ASSIGN,
+        status: AUDIT_STATUS.ERROR,
+        clientId: customerId,
+        userId: actor?.userId ?? null,
+        amount: dto.amount,
+        requestPayload: dto,
+        message: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
+    }
   }
 
   async obtenerCustomerBalance(clientId: number): Promise<{

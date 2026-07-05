@@ -2,6 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CurrentUserPayload } from '../../common/interfaces/current-user-payload.interface';
+import { FilterAuditLogDto } from '../audit-log/dto/filter-audit-log.dto';
 import { DashboardService } from './dashboard.service';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 
@@ -44,5 +45,19 @@ export class DashboardController {
     @Body() dto: DashboardFilterDto,
   ) {
     return this.dashboardService.obtenerDashboard(user.roleId, dto);
+  }
+
+  @Post('bitacora')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Bitácora de operaciones (transacciones, check-status, abonos)',
+    description:
+      'Registros de `OperationAuditLog`. Filtros: `clientId`, `operationType` (transaction_create | check_status | balance_assign), `status`, `from`/`to`, paginación. Solo Super Administrador / Administrador.',
+  })
+  obtenerBitacora(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() filter: FilterAuditLogDto,
+  ) {
+    return this.dashboardService.obtenerBitacora(user.roleId, filter);
   }
 }

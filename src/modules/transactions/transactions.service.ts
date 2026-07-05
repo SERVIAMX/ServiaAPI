@@ -10,6 +10,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, Repository } from 'typeorm';
 import { runInTransaction } from '../../database/query-runner.util';
 import { MovivendorTimeoutException } from '../../common/exceptions/movivendor-timeout.exception';
+import {
+  AUDIT_OPERATION,
+  AUDIT_STATUS,
+} from '../audit-log/audit-log.types';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosService } from '../productos/productos.service';
@@ -161,6 +166,7 @@ export class TransactionsService {
     private readonly customerBalanceRepo: Repository<CustomerBalance>,
     private readonly productosService: ProductosService,
     private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -452,39 +458,78 @@ export class TransactionsService {
   /**
    * Consulta estatus en Movivendor (`check/tx`) usando datos guardados en BD.
    */
-  async checkStatus(externalId: string) {
+  async checkStatus(
+    externalId: string,
+    authUser?: { userId: number; clientId: number },
+  ) {
     const ext = String(externalId ?? '').trim();
-    if (!/^\d+$/.test(ext) || ext.length > 20) {
-      throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
-    }
+    try {
+      if (!/^\d+$/.test(ext) || ext.length > 20) {
+        throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
+      }
 
-    const tx = await this.findTxRecordByExternalId(ext);
-    const destination = tx.destination?.trim();
-    if (!destination) {
-      throw new BadRequestException(
-        'La transacción no tiene destination para consultar estatus',
+      const tx = await this.findTxRecordByExternalId(ext);
+      const destination = tx.destination?.trim();
+      if (!destination) {
+        throw new BadRequestException(
+          'La transacción no tiene destination para consultar estatus',
+        );
+      }
+
+      this.logger.log(
+        `[checkStatus] externalId=${ext} idTransaction=${tx.idTransaction} sku=${tx.sku}`,
       );
+
+      const movivendor = await this.productosService.estatusVenta({
+        id: tx.externalId,
+        product: tx.sku,
+        subprod: '0',
+        destination,
+        amount: amountForMovivendor(tx.amount),
+      });
+
+      await this.persistCheckStatusResponse(tx, movivendor);
+
+      const result = {
+        externalId: tx.externalId,
+        idTransaction: tx.idTransaction,
+        movivendor,
+      };
+
+      const mvCode =
+        typeof movivendor === 'object' &&
+        movivendor !== null &&
+        'code' in movivendor
+          ? (movivendor as { code: unknown }).code
+          : null;
+
+      await this.auditLogService.record({
+        operationType: AUDIT_OPERATION.CHECK_STATUS,
+        status:
+          mvCode === 0 || mvCode === '0'
+            ? AUDIT_STATUS.SUCCESS
+            : AUDIT_STATUS.ERROR,
+        clientId: authUser?.clientId ?? null,
+        userId: authUser?.userId ?? null,
+        referenceId: tx.externalId,
+        amount: tx.amount,
+        requestPayload: { externalId: ext },
+        responsePayload: result,
+      });
+
+      return result;
+    } catch (e) {
+      await this.auditLogService.record({
+        operationType: AUDIT_OPERATION.CHECK_STATUS,
+        status: AUDIT_STATUS.ERROR,
+        clientId: authUser?.clientId ?? null,
+        userId: authUser?.userId ?? null,
+        referenceId: ext || null,
+        requestPayload: { externalId: ext },
+        message: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
     }
-
-    this.logger.log(
-      `[checkStatus] externalId=${ext} idTransaction=${tx.idTransaction} sku=${tx.sku}`,
-    );
-
-    const movivendor = await this.productosService.estatusVenta({
-      id: tx.externalId,
-      product: tx.sku,
-      subprod: '0',
-      destination,
-      amount: amountForMovivendor(tx.amount),
-    });
-
-    await this.persistCheckStatusResponse(tx, movivendor);
-
-    return {
-      externalId: tx.externalId,
-      idTransaction: tx.idTransaction,
-      movivendor,
-    };
   }
 
   private async persistCheckStatusResponse(
@@ -547,6 +592,10 @@ export class TransactionsService {
   }
 
   async createTransaction(authUser: { userId: number; clientId: number }, dto: CreateTransactionDto) {
+    let savedIdTransaction: number | undefined;
+    let externalId: string | undefined;
+
+    try {
     const user = await this.userRepo.findOne({
       where: { id: authUser.userId },
       relations: { client: true },
@@ -562,6 +611,7 @@ export class TransactionsService {
 
     // ExternalId numérico <= 20: IdCliente(4) + IdUser(4) + yyMMddHHmmss(12)
     const id = `${padInt(authUser.clientId, 4)}${padInt(authUser.userId, 4)}${formatYYMMDDHHmmss(new Date())}`;
+    externalId = id;
     if (!/^\d+$/.test(id) || id.length > 20) {
       throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
     }
@@ -577,25 +627,30 @@ export class TransactionsService {
 
     // charged = monto que se descuenta del saldo del cliente
     let charged = amountNum;
+    let netAmount = amountNum;
+
     if (isTiempoAire) {
+      // Se cobra el monto completo; netAmount refleja el valor con DiscountPercentage (referencia/reporte).
       const discountPct = Number(client.discountPercentage ?? '0');
       const pct = Number.isFinite(discountPct) ? discountPct : 0;
-      charged = amountNum * (1 - pct / 100);
-      if (charged < 0) charged = 0;
+      netAmount = amountNum * (1 - pct / 100);
+      if (netAmount < 0) netAmount = 0;
+      charged = amountNum;
     } else {
-      // Para tipos distintos de tiempo_aire, CommissionPercentage se trata como MONTO FIJO a sumar
-      // (ej. commissionPercentage=10 y amount=30 => charged=40).
+      // Servicios/CFE: CommissionPercentage = monto fijo a sumar (ej. 10 + amount 30 => 40).
       const comm = Number(client.commissionPercentage ?? '0');
       const add = Number.isFinite(comm) ? comm : 0;
       charged = amountNum + add;
+      netAmount = charged;
     }
+
     charged = Number(charged.toFixed(2));
+    netAmount = Number(netAmount.toFixed(2));
 
     this.logger.log(
-      `[createTransaction] Inicio userId=${authUser.userId} clientId=${authUser.clientId} externalId=${id} charged=${charged}`,
+      `[createTransaction] Inicio userId=${authUser.userId} clientId=${authUser.clientId} externalId=${id} amount=${amountNum.toFixed(2)} charged=${charged} netAmount=${netAmount}`,
     );
 
-    let savedIdTransaction: number;
     let isCredit: number;
 
     const fase1 = await runInTransaction(this.dataSource, async (manager) => {
@@ -609,7 +664,7 @@ export class TransactionsService {
         externalId: id,
         user: { id: user.id } as User,
         amount: amountNum.toFixed(2),
-        netAmount: charged.toFixed(2),
+        netAmount: netAmount.toFixed(2),
         destination: dto.destination.trim(),
         brand: dto.brand?.trim() ? dto.brand.trim() : null,
         sku: dto.product,
@@ -651,6 +706,7 @@ export class TransactionsService {
         esTAE,
         tipoCobro: tipoCobroFromIsCredit(isCreditNorm),
         chargedAmount: charged.toFixed(2),
+        netAmount: netAmount.toFixed(2),
         recargaEstado: recargaEstadoFromMovivendor(ventaRes),
         movivendor: ventaRes,
       };
@@ -664,13 +720,28 @@ export class TransactionsService {
         );
       }
 
+      await this.auditLogService.record({
+        operationType: AUDIT_OPERATION.TRANSACTION_CREATE,
+        status: isMovivendorProviderError(ventaRes)
+          ? AUDIT_STATUS.ERROR
+          : AUDIT_STATUS.SUCCESS,
+        clientId: authUser.clientId,
+        userId: authUser.userId,
+        referenceId: String(savedIdTransaction),
+        amount: dto.amount,
+        requestPayload: dto,
+        responsePayload: base,
+        message:
+          base.recargaEstado === 'fallida' ? 'Recarga fallida en proveedor' : null,
+      });
+
       return base;
     } catch (e) {
       if (e instanceof MovivendorTimeoutException) {
         this.logger.warn(
           `[createTransaction] Timeout proveedor tx #${savedIdTransaction} externalId=${id}: ${e.message}`,
         );
-        return this.respuestaTransaccionPendienteProveedor({
+        const pending = await this.respuestaTransaccionPendienteProveedor({
           idTransaction: savedIdTransaction,
           externalId: id,
           isCredit,
@@ -679,6 +750,20 @@ export class TransactionsService {
           dto,
           timeout: e,
         });
+
+        await this.auditLogService.record({
+          operationType: AUDIT_OPERATION.TRANSACTION_CREATE,
+          status: AUDIT_STATUS.PENDING,
+          clientId: authUser.clientId,
+          userId: authUser.userId,
+          referenceId: String(savedIdTransaction),
+          amount: dto.amount,
+          requestPayload: dto,
+          responsePayload: pending,
+          message: e.message,
+        });
+
+        return pending;
       }
       await this.revertirTrasFalloProveedor(
         authUser.clientId,
@@ -687,6 +772,22 @@ export class TransactionsService {
         charged,
         e,
       );
+      throw e;
+    }
+    } catch (e) {
+      await this.auditLogService.record({
+        operationType: AUDIT_OPERATION.TRANSACTION_CREATE,
+        status: AUDIT_STATUS.ERROR,
+        clientId: authUser.clientId,
+        userId: authUser.userId,
+        referenceId:
+          savedIdTransaction != null
+            ? String(savedIdTransaction)
+            : externalId ?? null,
+        amount: dto.amount,
+        requestPayload: dto,
+        message: e instanceof Error ? e.message : String(e),
+      });
       throw e;
     }
   }

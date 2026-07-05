@@ -11,6 +11,7 @@ import {
   safeRelease,
   safeRollback,
 } from '../../database/query-runner.util';
+import { calcularSaldoAcreditadoConBonificacion } from '../../common/utils/client-balance-bonus.util';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
@@ -158,7 +159,7 @@ export class WebhookMpService {
         balanceCredited = true;
         balanceHistoryMarkedPaid = r.balanceHistoryMarkedPaid;
         this.logger.log(
-          `[WebhookMP] Saldo acreditado: clientId=${clientId} +${amount.toFixed(2)}` +
+          `[WebhookMP] Saldo acreditado: clientId=${clientId} pagado=${amount.toFixed(2)} acreditado=${r.acreditado.toFixed(2)}` +
             (balanceHistoryMarkedPaid
               ? ` | BalanceHistory #${balanceHistoryId} → isPaid=1`
               : ''),
@@ -316,7 +317,7 @@ export class WebhookMpService {
     client: Client,
     amount: number,
     balanceHistoryId?: number,
-  ): Promise<{ balanceHistoryMarkedPaid: boolean }> {
+  ): Promise<{ balanceHistoryMarkedPaid: boolean; acreditado: number }> {
     let balanceHistoryMarkedPaid = false;
     if (balanceHistoryId != null) {
       balanceHistoryMarkedPaid = await this.marcarBalanceHistoryPagado(
@@ -340,7 +341,11 @@ export class WebhookMpService {
     }
 
     const currentBalance = Number(cb.balance ?? 0) || 0;
-    cb.balance = (currentBalance + amount).toFixed(2);
+    const acreditado = calcularSaldoAcreditadoConBonificacion(
+      amount,
+      client.discountPercentage,
+    );
+    cb.balance = (currentBalance + acreditado).toFixed(2);
     await manager.save(cb);
 
     if (!balanceHistoryId) {
@@ -353,6 +358,6 @@ export class WebhookMpService {
       await manager.save(hist);
     }
 
-    return { balanceHistoryMarkedPaid };
+    return { balanceHistoryMarkedPaid, acreditado };
   }
 }

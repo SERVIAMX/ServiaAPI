@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { Role } from '../roles/entities/role.entity';
@@ -17,6 +18,7 @@ import { DashboardService } from './dashboard.service';
       TransactionHistory,
       Role,
     ]),
+    AuditLogModule,
   ],
   controllers: [DashboardController],
   providers: [DashboardService],

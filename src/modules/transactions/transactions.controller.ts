@@ -159,8 +159,9 @@ export class TransactionsController {
     description:
       'Consulta estatus en Movivendor (`MOVIVENDOR_CHECK_STATUS` / `check/tx`). Body: `externalId`. Busca en `Transactions` o `TransactionsHistory` y arma el payload con SKU, destination, amount e id.',
   })
-  checkStatus(@Body() dto: CheckStatusDto) {
-    return this.transactionsService.checkStatus(dto.externalId);
+  checkStatus(@Req() req: Request, @Body() dto: CheckStatusDto) {
+    const authUser = req.user as AuthUser | undefined;
+    return this.transactionsService.checkStatus(dto.externalId, authUser);
   }
 }
 

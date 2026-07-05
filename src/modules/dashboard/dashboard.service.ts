@@ -10,6 +10,8 @@ import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { Role } from '../roles/entities/role.entity';
 import { TransactionHistory } from '../transactions/entities/transaction-history.entity';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { FilterAuditLogDto } from '../audit-log/dto/filter-audit-log.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 
 function parseRangeStart(raw: Date): Date {
@@ -106,6 +108,7 @@ export class DashboardService {
     private readonly txHistoryRepository: Repository<TransactionHistory>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /** Ventas exitosas en `TransactionsHistory` (`code` = 0, no vacío). */
@@ -390,5 +393,10 @@ export class DashboardService {
       saldoPorCliente,
       ventasRangoFechas,
     };
+  }
+
+  async obtenerBitacora(roleId: number, filter: FilterAuditLogDto) {
+    await this.assertPrivilegedAdmin(roleId);
+    return this.auditLogService.findFiltered(filter);
   }
 }
