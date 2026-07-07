@@ -61,9 +61,19 @@ const MOVIVENDOR_TX_ID_RE = /^\d{12,20}$/;
 /** Espera máxima de MOVIVENDOR_VENTA antes de responder pendiente al cliente (POST /transactions). */
 const MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS = 20_000;
 
-/** Rango de `extra.delay` enviado a Movivendor en do/tx (ms). */
-const MOVIVENDOR_VENTA_DELAY_MIN_MS = 20_000;
-const MOVIVENDOR_VENTA_DELAY_MAX_MS = 40_000;
+/** `extra.delay` enviado a Movivendor en do/tx (ms). */
+const MOVIVENDOR_VENTA_DELAY_MS = 20_000;
+
+function ventaDurationSecondsFromResponse(json: unknown, wallMs: number): number {
+  const wallSec = Math.round(wallMs / 1000);
+  if (!isRecord(json) || !isRecord(json.data)) return wallSec;
+  const elapsed = json.data.elapsed;
+  if (elapsed === null || elapsed === undefined || elapsed === '') return wallSec;
+  const n = Number(elapsed);
+  if (!Number.isFinite(n) || n <= 0) return wallSec;
+  if (n >= 100) return Math.round(n / 1000) || wallSec;
+  return Math.round(n);
+}
 
 function parseBalanceValue(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
@@ -451,18 +461,11 @@ export class ProductosService {
     return randomInt(0, 1_000_000_000_000).toString().padStart(12, '0');
   }
 
-  /** `extra.delay` aleatorio para do/tx (inclusive 20000–40000 ms). */
-  private generarDelayExtraMovivendorVenta(): number {
-    return randomInt(
-      MOVIVENDOR_VENTA_DELAY_MIN_MS,
-      MOVIVENDOR_VENTA_DELAY_MAX_MS + 1,
-    );
-  }
-
   /** Persiste code y respuesta cruda de Movivendor en Transactions. */
   private async persistVentaMovivendorResponse(
     idTransaction: number,
     json: unknown,
+    durationSeconds: number,
     logTag?: string,
   ): Promise<void> {
     const tag = logTag ?? '[ejecutarVenta]';
@@ -471,13 +474,14 @@ export class ProductosService {
         ? String(json.code)
         : '';
     this.logger.log(
-      `${tag} Actualizando Transactions #${idTransaction} code=${codeStr || '—'}`,
+      `${tag} Actualizando Transactions #${idTransaction} code=${codeStr || '—'} duration=${durationSeconds}s`,
     );
     await this.txRepo.update(
       { idTransaction },
       {
         ...(codeStr ? { code: codeStr } : {}),
         responseProvider: json as any,
+        ventaDurationSeconds: durationSeconds.toFixed(2),
       },
     );
     this.logger.log(`${tag} Transactions #${idTransaction} actualizada`);
@@ -771,8 +775,7 @@ export class ProductosService {
     );
     this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
 
-    const movivendorDelayMs = this.generarDelayExtraMovivendorVenta();
-    this.logger.log(`${tag} extra.delay=${movivendorDelayMs} (aleatorio 20000–40000)`);
+    this.logger.log(`${tag} extra.delay=${MOVIVENDOR_VENTA_DELAY_MS} (20s fijo)`);
 
     const payload = {
       token,
@@ -782,7 +785,7 @@ export class ProductosService {
       subprod: dto.subprod,
       destination: dto.destination,
       amount: dto.amount,
-      extra: { delay: movivendorDelayMs },
+      extra: { delay: MOVIVENDOR_VENTA_DELAY_MS },
     };
     const { token: _omit, ...payloadSafe } = payload;
     this.logger.log(
@@ -863,9 +866,14 @@ export class ProductosService {
     }
 
     if (dto.idTransaction !== undefined && dto.idTransaction !== null) {
+      const durationSeconds = ventaDurationSecondsFromResponse(
+        json,
+        Date.now() - startedAt,
+      );
       await this.persistVentaMovivendorResponse(
         dto.idTransaction,
         json,
+        durationSeconds,
         tag,
       );
     } else {

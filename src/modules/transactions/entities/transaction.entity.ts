@@ -65,6 +65,20 @@ export class Transaction {
   @UpdateDateColumn({ type: 'timestamp', name: 'FHUpdate' })
   fhUpdate: Date;
 
+  /** Segundos que tardó la venta en Movivendor (delay ~20s). */
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'VentaDurationSeconds',
+  })
+  ventaDurationSeconds: string | null;
+
+  /** Momento en que respondió el último check-status. */
+  @Column({ type: 'timestamp', nullable: true, name: 'FHCheckStatus' })
+  fhCheckStatus: Date | null;
+
   @Column({ type: 'json', nullable: true, name: 'ResponseProvider' })
   @Exclude()
   @ApiHideProperty()

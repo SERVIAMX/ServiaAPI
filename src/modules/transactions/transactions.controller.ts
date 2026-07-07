@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -17,7 +18,8 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
+import { SkipResponseInterceptor } from '../../common/decorators/skip-response-interceptor.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { CheckStatusDto } from './dto/check-status.dto';
@@ -33,6 +35,32 @@ type AuthUser = { userId: number; clientId: number; roleId?: number };
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
+
+  @Get('all/excel')
+  @SkipResponseInterceptor()
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Exportar todas las transacciones a Excel',
+    description:
+      'Descarga `.xlsx` con rango `from`/`to` sobre FHRegister. Incluye duración de venta (s) y hora de respuesta de check-status. Solo rol 1.',
+  })
+  async exportAllExcel(
+    @Req() req: Request,
+    @Query() filter: FilterTransactionsDto,
+    @Res() res: Response,
+  ) {
+    const authUser = req.user as AuthUser | undefined;
+    if (authUser?.roleId !== 1) {
+      throw new ForbiddenException('Solo rol 1 puede consultar este recurso');
+    }
+    const { buffer, filename } =
+      await this.transactionsService.exportExcelAll(filter);
+    res.set({
+      'Content-Type': 'application/vnd.ms-excel',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.send(buffer);
+  }
 
   @Get('all')
   @ApiBearerAuth()
@@ -71,6 +99,31 @@ export class TransactionsController {
       throw new ForbiddenException('Solo rol 1 puede consultar este recurso');
     }
     return this.transactionsService.findByDateRange(filter);
+  }
+
+  @Get('excel')
+  @SkipResponseInterceptor()
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Exportar transacciones del usuario a Excel',
+    description:
+      'Descarga `.xlsx` filtrado por usuario autenticado y rango `from`/`to`. Columnas: duración venta (s) y hora respuesta check-status.',
+  })
+  async exportExcel(
+    @Req() req: Request,
+    @Query() filter: FilterTransactionsDto,
+    @Res() res: Response,
+  ) {
+    const authUser = req.user as AuthUser | undefined;
+    const userId = authUser?.userId;
+    if (!userId) throw new UnauthorizedException('Usuario no autenticado');
+    const { buffer, filename } =
+      await this.transactionsService.exportExcelByUser(userId, filter);
+    res.set({
+      'Content-Type': 'application/vnd.ms-excel',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.send(buffer);
   }
 
   @Get()

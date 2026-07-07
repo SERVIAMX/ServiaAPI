@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, Repository } from 'typeorm';
+import { buildExcelXmlSpreadsheet } from '../../common/utils/spreadsheet.util';
 import { runInTransaction } from '../../database/query-runner.util';
 import { MovivendorTimeoutException } from '../../common/exceptions/movivendor-timeout.exception';
 import {
@@ -149,6 +150,23 @@ function movivendorCodeToString(code: unknown): string {
   return String(code).trim();
 }
 
+/** Delay fijo enviado a Movivendor en venta (segundos). */
+const MOVIVENDOR_VENTA_DELAY_SECONDS = 20;
+
+function formatExcelDateTime(d: Date | null | undefined): string {
+  if (!d) return '';
+  return d.toLocaleString('es-MX', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
 @Injectable()
 export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
@@ -168,6 +186,94 @@ export class TransactionsService {
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
   ) {}
+
+  private mapTransactionListItem(t: Transaction) {
+    const isCredit = normalizeIsCredit(t.isCredit);
+    const tipoCobro = tipoCobroFromIsCredit(isCredit);
+    return {
+      idTransaction: t.idTransaction,
+      tipoCobro,
+      isCredit,
+      fhRegister: t.fhRegister,
+      externalId: t.externalId,
+      amount: t.amount,
+      code: t.code,
+      recargaEstado: recargaEstadoFromCode(t.code),
+      sku: t.sku,
+      logo: t.logo,
+      fhUpdate: t.fhUpdate,
+      ventaDurationSeconds: t.ventaDurationSeconds,
+      fhCheckStatus: t.fhCheckStatus,
+      netAmount: t.netAmount,
+      destination: t.destination,
+      brand: t.brand,
+      esTAE: normalizeIsCredit(t.esTAE),
+    };
+  }
+
+  private async buildTransactionsExcel(
+    rows: Transaction[],
+    fromLabel: string,
+    toLabel: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const headers = [
+      'Id transacción',
+      'ExternalId',
+      'Fecha registro',
+      'Monto',
+      'Código',
+      'Estado recarga',
+      'SKU',
+      'Marca',
+      'Destino',
+      'Tipo cobro',
+      'Duración venta (s)',
+      'Hora respuesta check status',
+      'Última actualización',
+    ];
+
+    const dataRows = rows.map((t) => {
+      const isCredit = normalizeIsCredit(t.isCredit);
+      const duration =
+        t.ventaDurationSeconds != null && String(t.ventaDurationSeconds) !== ''
+          ? Number(t.ventaDurationSeconds)
+          : '';
+      return [
+        t.idTransaction,
+        t.externalId,
+        formatExcelDateTime(t.fhRegister),
+        t.amount,
+        t.code,
+        recargaEstadoFromCode(t.code),
+        t.sku,
+        t.brand ?? '',
+        t.destination ?? '',
+        tipoCobroFromIsCredit(isCredit) ?? '',
+        duration,
+        formatExcelDateTime(t.fhCheckStatus),
+        formatExcelDateTime(t.fhUpdate),
+      ];
+    });
+
+    const safeFrom = fromLabel.trim().slice(0, 10);
+    const safeTo = toLabel.trim().slice(0, 10);
+    return {
+      buffer: buildExcelXmlSpreadsheet('Transacciones', headers, dataRows),
+      filename: `transacciones_${safeFrom}_${safeTo}.xls`,
+    };
+  }
+
+  private parseFilterRange(filter: FilterTransactionsDto): {
+    from: Date;
+    to: Date;
+  } {
+    const from = parseRangeStart(filter.from);
+    const to = parseRangeEnd(filter.to);
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException('El rango de fechas es inválido (from > to)');
+    }
+    return { from, to };
+  }
 
   /**
    * Descuenta saldo sin `SELECT FOR UPDATE` (evita bloqueos largos en CustomerBalance).
@@ -295,11 +401,7 @@ export class TransactionsService {
 
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
-    const from = parseRangeStart(filter.from);
-    const to = parseRangeEnd(filter.to);
-    if (from.getTime() > to.getTime()) {
-      throw new BadRequestException('El rango de fechas es inválido (from > to)');
-    }
+    const { from, to } = this.parseFilterRange(filter);
 
     const [rows, total] = await this.txRepo.findAndCount({
       where: {
@@ -311,27 +413,7 @@ export class TransactionsService {
       take: limit,
     });
 
-    const data = rows.map((t) => {
-      const isCredit = normalizeIsCredit(t.isCredit);
-      const tipoCobro = tipoCobroFromIsCredit(isCredit);
-      return {
-        idTransaction: t.idTransaction,
-        tipoCobro,
-        isCredit,
-        fhRegister: t.fhRegister,
-        externalId: t.externalId,
-        amount: t.amount,
-        code: t.code,
-        recargaEstado: recargaEstadoFromCode(t.code),
-        sku: t.sku,
-        logo: t.logo,
-        fhUpdate: t.fhUpdate,
-        netAmount: t.netAmount,
-        destination: t.destination,
-        brand: t.brand,
-        esTAE: normalizeIsCredit(t.esTAE),
-      };
-    });
+    const data = rows.map((t) => this.mapTransactionListItem(t));
 
     return {
       data,
@@ -347,11 +429,7 @@ export class TransactionsService {
   async findByDateRange(filter: FilterTransactionsDto) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
-    const from = parseRangeStart(filter.from);
-    const to = parseRangeEnd(filter.to);
-    if (from.getTime() > to.getTime()) {
-      throw new BadRequestException('El rango de fechas es inválido (from > to)');
-    }
+    const { from, to } = this.parseFilterRange(filter);
 
     const [rows, total] = await this.txRepo.findAndCount({
       where: { fhRegister: Between(from, to) },
@@ -360,27 +438,7 @@ export class TransactionsService {
       take: limit,
     });
 
-    const data = rows.map((t) => {
-      const isCredit = normalizeIsCredit(t.isCredit);
-      const tipoCobro = tipoCobroFromIsCredit(isCredit);
-      return {
-        idTransaction: t.idTransaction,
-        tipoCobro,
-        isCredit,
-        fhRegister: t.fhRegister,
-        externalId: t.externalId,
-        amount: t.amount,
-        code: t.code,
-        recargaEstado: recargaEstadoFromCode(t.code),
-        sku: t.sku,
-        logo: t.logo,
-        fhUpdate: t.fhUpdate,
-        netAmount: t.netAmount,
-        destination: t.destination,
-        brand: t.brand,
-        esTAE: normalizeIsCredit(t.esTAE),
-      };
-    });
+    const data = rows.map((t) => this.mapTransactionListItem(t));
 
     return {
       data,
@@ -420,6 +478,8 @@ export class TransactionsService {
       sku: t.sku,
       logo: t.logo,
       fhUpdate: t.fhUpdate,
+      ventaDurationSeconds: t.ventaDurationSeconds,
+      fhCheckStatus: t.fhCheckStatus,
       destination: t.destination,
       brand: t.brand,
       esTAE: normalizeIsCredit(t.esTAE),
@@ -449,6 +509,8 @@ export class TransactionsService {
       sku: t.sku,
       logo: t.logo,
       fhUpdate: t.fhUpdate,
+      ventaDurationSeconds: t.ventaDurationSeconds,
+      fhCheckStatus: t.fhCheckStatus,
       destination: t.destination,
       brand: t.brand,
       esTAE: normalizeIsCredit(t.esTAE),
@@ -536,30 +598,36 @@ export class TransactionsService {
     tx: TxRecord,
     movivendor: unknown,
   ): Promise<void> {
-    if (typeof movivendor !== 'object' || movivendor === null) return;
+    const fhCheckStatus = new Date();
+    const repo =
+      tx.source === 'current' ? this.txRepo : this.txHistoryRepo;
+
+    if (typeof movivendor !== 'object' || movivendor === null) {
+      await repo.update({ idTransaction: tx.idTransaction }, { fhCheckStatus });
+      return;
+    }
 
     const rec = movivendor as Record<string, unknown>;
     if (!shouldPersistCheckStatusCode(rec.code)) {
       this.logger.log(
-        `[checkStatus] Sin actualizar BD: code=${movivendorCodeToString(rec.code)} (88/89 no persisten)`,
+        `[checkStatus] Sin actualizar code: code=${movivendorCodeToString(rec.code)} (88/89); FHCheckStatus=${fhCheckStatus.toISOString()}`,
       );
+      await repo.update({ idTransaction: tx.idTransaction }, { fhCheckStatus });
       return;
     }
 
     const codeStr = movivendorCodeToString(rec.code);
-    const update = {
-      code: codeStr,
-      responseProvider: movivendor as object,
-    };
-
-    if (tx.source === 'current') {
-      await this.txRepo.update({ idTransaction: tx.idTransaction }, update);
-    } else {
-      await this.txHistoryRepo.update({ idTransaction: tx.idTransaction }, update);
-    }
+    await repo.update(
+      { idTransaction: tx.idTransaction },
+      {
+        fhCheckStatus,
+        code: codeStr,
+        responseProvider: movivendor as object,
+      },
+    );
 
     this.logger.log(
-      `[checkStatus] Actualizado ${tx.source === 'current' ? 'Transactions' : 'TransactionsHistory'} #${tx.idTransaction} code=${codeStr}`,
+      `[checkStatus] Actualizado ${tx.source === 'current' ? 'Transactions' : 'TransactionsHistory'} #${tx.idTransaction} code=${codeStr} FHCheckStatus=${fhCheckStatus.toISOString()}`,
     );
   }
 
@@ -838,7 +906,10 @@ export class TransactionsService {
 
     await this.txRepo.update(
       { idTransaction: params.idTransaction },
-      { responseProvider: movivendor as object },
+      {
+        responseProvider: movivendor as object,
+        ventaDurationSeconds: MOVIVENDOR_VENTA_DELAY_SECONDS.toFixed(2),
+      },
     );
 
     const isCreditNorm = normalizeIsCredit(params.isCredit);
@@ -852,6 +923,36 @@ export class TransactionsService {
       recargaEstado: 'pendiente' as const,
       movivendor,
     };
+  }
+
+  async exportExcelByUser(
+    userId: number,
+    filter: FilterTransactionsDto,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    if (!userId) throw new UnauthorizedException('Usuario no autenticado');
+
+    const { from, to } = this.parseFilterRange(filter);
+    const rows = await this.txRepo.find({
+      where: {
+        user: { id: userId },
+        fhRegister: Between(from, to),
+      },
+      order: { idTransaction: 'DESC' },
+    });
+
+    return this.buildTransactionsExcel(rows, filter.from, filter.to);
+  }
+
+  async exportExcelAll(
+    filter: FilterTransactionsDto,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const { from, to } = this.parseFilterRange(filter);
+    const rows = await this.txRepo.find({
+      where: { fhRegister: Between(from, to) },
+      order: { idTransaction: 'DESC' },
+    });
+
+    return this.buildTransactionsExcel(rows, filter.from, filter.to);
   }
 }
 

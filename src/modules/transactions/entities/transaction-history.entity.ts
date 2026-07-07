@@ -55,6 +55,18 @@ export class TransactionHistory {
   @UpdateDateColumn({ type: 'timestamp', name: 'FHUpdate' })
   fhUpdate: Date;
 
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'VentaDurationSeconds',
+  })
+  ventaDurationSeconds: string | null;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'FHCheckStatus' })
+  fhCheckStatus: Date | null;
+
   @Column({ type: 'json', nullable: true, name: 'ResponseProvider' })
   @Exclude()
   @ApiHideProperty()

@@ -4,8 +4,10 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { SKIP_RESPONSE_INTERCEPTOR_KEY } from '../decorators/skip-response-interceptor.decorator';
 import { PaginatedMeta } from '../interfaces/paginated-result.interface';
 
 export interface StandardResponse<T> {
@@ -19,10 +21,18 @@ export interface StandardResponse<T> {
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, StandardResponse<T>> {
+  constructor(private readonly reflector: Reflector) {}
+
   intercept(
     context: ExecutionContext,
     next: CallHandler,
   ): Observable<StandardResponse<T>> {
+    const skip = this.reflector.getAllAndOverride<boolean>(
+      SKIP_RESPONSE_INTERCEPTOR_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (skip) return next.handle() as Observable<StandardResponse<T>>;
+
     const ctx = context.switchToHttp();
     const statusCode = ctx.getResponse().statusCode ?? 200;
 

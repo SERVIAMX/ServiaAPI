@@ -45,6 +45,19 @@ export class TransactionByExternalIdDto {
   @ApiProperty()
   fhUpdate!: Date;
 
+  @ApiPropertyOptional({
+    description: 'Segundos que tardó la venta en Movivendor',
+    example: '20.00',
+    nullable: true,
+  })
+  ventaDurationSeconds!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Fecha/hora del último check-status',
+    nullable: true,
+  })
+  fhCheckStatus!: Date | null;
+
   @ApiPropertyOptional()
   destination!: string | null;
 

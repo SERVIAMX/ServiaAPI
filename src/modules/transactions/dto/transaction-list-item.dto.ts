@@ -45,6 +45,19 @@ export class TransactionListItemDto {
   @ApiProperty()
   fhUpdate!: Date;
 
+  @ApiPropertyOptional({
+    description: 'Segundos que tardó la venta en Movivendor (delay ~20s)',
+    example: '20.00',
+    nullable: true,
+  })
+  ventaDurationSeconds!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Fecha/hora en que respondió el último check-status',
+    nullable: true,
+  })
+  fhCheckStatus!: Date | null;
+
   @ApiPropertyOptional()
   netAmount!: string | null;
 
