@@ -11,6 +11,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'node:crypto';
 import { Repository } from 'typeorm';
 import {
+  MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS,
+  MOVIVENDOR_VENTA_DELAY_MS,
+} from '../../common/constants/movivendor-timing.constants';
+import {
   MovivendorTimeoutException,
   looksLikeMovivendorGatewayTimeout,
 } from '../../common/exceptions/movivendor-timeout.exception';
@@ -58,11 +62,10 @@ function formatMovivendorCurl(url: string, payload: Record<string, unknown>): st
 /** Movivendor: id numérico entre 12 y 20 caracteres. */
 const MOVIVENDOR_TX_ID_RE = /^\d{12,20}$/;
 
-/** Espera máxima de MOVIVENDOR_VENTA antes de responder pendiente al cliente (POST /transactions). */
-const MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS = 20_000;
-
-/** `extra.delay` enviado a Movivendor en do/tx (ms). */
-const MOVIVENDOR_VENTA_DELAY_MS = 20_000;
+function movivendorCodeToString(code: unknown): string {
+  if (code === undefined || code === null) return '';
+  return String(code).trim();
+}
 
 function ventaDurationSecondsFromResponse(json: unknown, wallMs: number): number {
   const wallSec = Math.round(wallMs / 1000);
@@ -470,8 +473,8 @@ export class ProductosService {
   ): Promise<void> {
     const tag = logTag ?? '[ejecutarVenta]';
     const codeStr =
-      isRecord(json) && typeof json.code === 'number'
-        ? String(json.code)
+      isRecord(json) && json.code !== undefined && json.code !== null
+        ? movivendorCodeToString(json.code)
         : '';
     this.logger.log(
       `${tag} Actualizando Transactions #${idTransaction} code=${codeStr || '—'} duration=${durationSeconds}s`,
@@ -479,7 +482,7 @@ export class ProductosService {
     await this.txRepo.update(
       { idTransaction },
       {
-        ...(codeStr ? { code: codeStr } : {}),
+        ...(codeStr !== '' ? { code: codeStr } : {}),
         responseProvider: json as any,
         ventaDurationSeconds: durationSeconds.toFixed(2),
       },
@@ -774,6 +777,17 @@ export class ProductosService {
       { autoGenerate: true, logTag: tag },
     );
     this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
+
+    if (dto.idTransaction != null) {
+      await this.txRepo.update(
+        { idTransaction: dto.idTransaction },
+        {
+          ventaDurationSeconds: (
+            MOVIVENDOR_VENTA_DELAY_MS / 1000
+          ).toFixed(2),
+        },
+      );
+    }
 
     this.logger.log(`${tag} extra.delay=${MOVIVENDOR_VENTA_DELAY_MS} (20s fijo)`);
 

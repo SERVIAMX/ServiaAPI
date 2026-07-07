@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, Repository } from 'typeorm';
 import { buildExcelXmlSpreadsheet } from '../../common/utils/spreadsheet.util';
+import { MOVIVENDOR_VENTA_DELAY_SECONDS } from '../../common/constants/movivendor-timing.constants';
 import { runInTransaction } from '../../database/query-runner.util';
 import { MovivendorTimeoutException } from '../../common/exceptions/movivendor-timeout.exception';
 import {
@@ -149,9 +150,6 @@ function movivendorCodeToString(code: unknown): string {
   if (code === undefined || code === null) return '';
   return String(code).trim();
 }
-
-/** Delay fijo enviado a Movivendor en venta (segundos). */
-const MOVIVENDOR_VENTA_DELAY_SECONDS = 20;
 
 function formatExcelDateTime(d: Date | null | undefined): string {
   if (!d) return '';
@@ -741,6 +739,7 @@ export class TransactionsService {
         isCredit: creditFlag,
         esTAE,
         responseProvider: null,
+        ventaDurationSeconds: MOVIVENDOR_VENTA_DELAY_SECONDS.toFixed(2),
       });
       const saved = await manager.save(tx);
 
