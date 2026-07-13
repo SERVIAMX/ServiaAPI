@@ -214,50 +214,39 @@ export class TransactionsService {
     fromLabel: string,
     toLabel: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
+    const checksByExternalId =
+      await this.auditLogService.findCheckStatusTimesByReferenceIds(
+        rows.map((t) => t.externalId),
+      );
+
+    let maxChecks = 0;
+    for (const times of checksByExternalId.values()) {
+      if (times.length > maxChecks) maxChecks = times.length;
+    }
+
     const headers = [
-      'Id transacción',
       'ExternalId',
-      'Fecha registro',
-      'Monto',
-      'Código',
-      'Estado recarga',
-      'SKU',
-      'Marca',
-      'Destino',
-      'Tipo cobro',
-      'Duración venta (s)',
-      'Hora respuesta check status',
-      'Última actualización',
+      'Hora inicio',
+      ...Array.from({ length: maxChecks }, (_, i) => `SaleCheck ${i + 1}`),
     ];
 
     const dataRows = rows.map((t) => {
-      const isCredit = normalizeIsCredit(t.isCredit);
-      const duration =
-        t.ventaDurationSeconds != null && String(t.ventaDurationSeconds) !== ''
-          ? Number(t.ventaDurationSeconds)
-          : '';
+      const checks = checksByExternalId.get(String(t.externalId).trim()) ?? [];
+      const checkCells = Array.from({ length: maxChecks }, (_, i) =>
+        formatExcelDateTime(checks[i]),
+      );
       return [
-        t.idTransaction,
         t.externalId,
         formatExcelDateTime(t.fhRegister),
-        t.amount,
-        t.code,
-        recargaEstadoFromCode(t.code),
-        t.sku,
-        t.brand ?? '',
-        t.destination ?? '',
-        tipoCobroFromIsCredit(isCredit) ?? '',
-        duration,
-        formatExcelDateTime(t.fhCheckStatus),
-        formatExcelDateTime(t.fhUpdate),
+        ...checkCells,
       ];
     });
 
     const safeFrom = fromLabel.trim().slice(0, 10);
     const safeTo = toLabel.trim().slice(0, 10);
     return {
-      buffer: buildExcelXmlSpreadsheet('Transacciones', headers, dataRows),
-      filename: `transacciones_${safeFrom}_${safeTo}.xls`,
+      buffer: buildExcelXmlSpreadsheet('SaleChecks', headers, dataRows),
+      filename: `transacciones_salecheck_${safeFrom}_${safeTo}.xls`,
     };
   }
 

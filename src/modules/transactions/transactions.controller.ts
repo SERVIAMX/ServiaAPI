@@ -42,7 +42,7 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'Exportar todas las transacciones a Excel',
     description:
-      'Descarga `.xlsx` con rango `from`/`to` sobre FHRegister. Incluye duración de venta (s) y hora de respuesta de check-status. Solo rol 1.',
+      'Descarga Excel con rango `from`/`to` sobre FHRegister. Columnas: ExternalId, Hora inicio y una columna SaleCheck N por cada check-status de ese ExternalId. Solo rol 1.',
   })
   async exportAllExcel(
     @Req() req: Request,
@@ -107,7 +107,7 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'Exportar transacciones del usuario a Excel',
     description:
-      'Descarga `.xlsx` filtrado por usuario autenticado y rango `from`/`to`. Columnas: duración venta (s) y hora respuesta check-status.',
+      'Descarga Excel filtrado por usuario autenticado y rango `from`/`to`. Columnas: ExternalId, Hora inicio y SaleCheck N (fecha/hora) por cada check-status.',
   })
   async exportExcel(
     @Req() req: Request,

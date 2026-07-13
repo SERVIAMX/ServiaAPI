@@ -65,7 +65,7 @@ export class Transaction {
   @UpdateDateColumn({ type: 'timestamp', name: 'FHUpdate' })
   fhUpdate: Date;
 
-  /** Segundos que tardó la venta en Movivendor (delay ~20s). */
+  /** Segundos que tardó la venta en Movivendor (delay ~40s). */
   @Column({
     type: 'decimal',
     precision: 10,

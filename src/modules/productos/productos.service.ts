@@ -789,7 +789,7 @@ export class ProductosService {
       );
     }
 
-    this.logger.log(`${tag} extra.delay=${MOVIVENDOR_VENTA_DELAY_MS} (20s fijo)`);
+    this.logger.log(`${tag} extra.delay=${MOVIVENDOR_VENTA_DELAY_MS} (40s fijo)`);
 
     const payload = {
       token,

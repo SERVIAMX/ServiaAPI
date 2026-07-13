@@ -132,6 +132,41 @@ export class AuditLogService {
     };
   }
 
+  /**
+   * Fechas de cada check_status por ReferenceId (externalId), orden ASC.
+   */
+  async findCheckStatusTimesByReferenceIds(
+    referenceIds: string[],
+  ): Promise<Map<string, Date[]>> {
+    const map = new Map<string, Date[]>();
+    const ids = [...new Set(referenceIds.map((id) => String(id).trim()).filter(Boolean))];
+    if (ids.length === 0) return map;
+
+    const rows = await this.auditRepo
+      .createQueryBuilder('a')
+      .select('a.referenceId', 'referenceId')
+      .addSelect('a.fhRegister', 'fhRegister')
+      .where('a.operationType = :op', { op: AUDIT_OPERATION.CHECK_STATUS })
+      .andWhere('a.referenceId IN (:...ids)', { ids })
+      .orderBy('a.fhRegister', 'ASC')
+      .addOrderBy('a.id', 'ASC')
+      .getRawMany<{ referenceId: string | null; fhRegister: Date | string }>();
+
+    for (const row of rows) {
+      const key = String(row.referenceId ?? '').trim();
+      if (!key) continue;
+      const fh =
+        row.fhRegister instanceof Date
+          ? row.fhRegister
+          : new Date(row.fhRegister);
+      if (Number.isNaN(fh.getTime())) continue;
+      const list = map.get(key) ?? [];
+      list.push(fh);
+      map.set(key, list);
+    }
+    return map;
+  }
+
   private operationLabel(type: string): string {
     switch (type) {
       case AUDIT_OPERATION.TRANSACTION_CREATE:
