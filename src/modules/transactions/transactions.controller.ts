@@ -164,6 +164,24 @@ export class TransactionsController {
     return this.transactionsService.findByUserAndDateRange(userId, filter);
   }
 
+  @Post('external-id')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Generar ExternalId',
+    description:
+      'Genera un ExternalId numérico (<= 20) con formato cliente(4)+usuario(4)+yyMMddHHmmss(12). Úsalo en el body de `POST /transactions` como `externalId`.',
+  })
+  generateExternalId(@Req() req: Request) {
+    const authUser = req.user as AuthUser | undefined;
+    if (!authUser?.userId || !authUser?.clientId) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+    return this.transactionsService.generateExternalIdForUser({
+      userId: authUser.userId,
+      clientId: authUser.clientId,
+    });
+  }
+
   @Get('external/:externalId')
   @Public()
   @ApiOperation({
@@ -192,7 +210,7 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'CreateTransaction',
     description:
-      'Crea registro en Transactions, genera ExternalId con RFC+yyyyMMddHHmmss y ejecuta /productos/venta. El code se actualiza desde Movivendor.',
+      'Crea registro en Transactions y ejecuta venta Movivendor. Si envías `externalId` (de `POST /transactions/external-id`) se usa ese; si no, la API lo genera.',
   })
   createTransaction(@Req() req: Request, @Body() dto: CreateTransactionDto) {
     const authUser = req.user as AuthUser | undefined;

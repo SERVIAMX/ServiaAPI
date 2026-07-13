@@ -1,8 +1,32 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateTransactionDto {
+  @ApiPropertyOptional({
+    description:
+      'ExternalId generado con `POST /transactions/external-id`. Si se omite, la API lo genera al crear la venta.',
+    example: '00140012260713123045',
+  })
+  @Transform(({ value }) =>
+    value === '' || value == null
+      ? undefined
+      : typeof value === 'string'
+        ? value.trim()
+        : String(value),
+  )
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^\d+$/, { message: 'externalId debe ser numérico' })
+  externalId?: string;
+
   @ApiProperty({
     description: 'Tipo de transacción (ej. tiempo_aire)',
     example: 'tiempo_aire',

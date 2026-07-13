@@ -646,6 +646,70 @@ export class TransactionsService {
     throw new NotFoundException('Transacción no encontrada');
   }
 
+  /** ExternalId: IdCliente(4) + IdUser(4) + yyMMddHHmmss(12). */
+  private buildExternalId(clientId: number, userId: number, at = new Date()): string {
+    return `${padInt(clientId, 4)}${padInt(userId, 4)}${formatYYMMDDHHmmss(at)}`;
+  }
+
+  private assertValidExternalId(id: string): void {
+    if (!/^\d+$/.test(id) || id.length === 0 || id.length > 20) {
+      throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
+    }
+  }
+
+  private assertExternalIdOwnedByUser(
+    id: string,
+    authUser: { userId: number; clientId: number },
+  ): void {
+    const prefix = `${padInt(authUser.clientId, 4)}${padInt(authUser.userId, 4)}`;
+    if (!id.startsWith(prefix)) {
+      throw new BadRequestException(
+        'ExternalId no pertenece al usuario autenticado',
+      );
+    }
+  }
+
+  private async assertExternalIdAvailable(id: string): Promise<void> {
+    const inCurrent = await this.txRepo.exist({ where: { externalId: id } });
+    if (inCurrent) {
+      throw new ConflictException(`ExternalId ya existe: ${id}`);
+    }
+    const inHistory = await this.txHistoryRepo.exist({
+      where: { externalId: id },
+    });
+    if (inHistory) {
+      throw new ConflictException(`ExternalId ya existe en historial: ${id}`);
+    }
+  }
+
+  async generateExternalIdForUser(authUser: {
+    userId: number;
+    clientId: number;
+  }): Promise<{ externalId: string }> {
+    // Si choca el mismo segundo, reintenta hasta 5 veces sumando 1s.
+    for (let i = 0; i < 5; i++) {
+      const at = new Date(Date.now() + i * 1000);
+      const externalId = this.buildExternalId(
+        authUser.clientId,
+        authUser.userId,
+        at,
+      );
+      this.assertValidExternalId(externalId);
+      const inCurrent = await this.txRepo.exist({
+        where: { externalId },
+      });
+      if (inCurrent) continue;
+      const inHistory = await this.txHistoryRepo.exist({
+        where: { externalId },
+      });
+      if (inHistory) continue;
+      return { externalId };
+    }
+    throw new ConflictException(
+      'No se pudo generar ExternalId único; reintenta',
+    );
+  }
+
   async createTransaction(authUser: { userId: number; clientId: number }, dto: CreateTransactionDto) {
     let savedIdTransaction: number | undefined;
     let externalId: string | undefined;
@@ -664,12 +728,16 @@ export class TransactionsService {
       }));
     if (!client) throw new NotFoundException('Cliente no encontrado');
 
-    // ExternalId numérico <= 20: IdCliente(4) + IdUser(4) + yyMMddHHmmss(12)
-    const id = `${padInt(authUser.clientId, 4)}${padInt(authUser.userId, 4)}${formatYYMMDDHHmmss(new Date())}`;
-    externalId = id;
-    if (!/^\d+$/.test(id) || id.length > 20) {
-      throw new BadRequestException('ExternalId inválido (debe ser numérico y <= 20)');
+    let id: string;
+    if (dto.externalId?.trim()) {
+      id = dto.externalId.trim();
+      this.assertValidExternalId(id);
+      this.assertExternalIdOwnedByUser(id, authUser);
+      await this.assertExternalIdAvailable(id);
+    } else {
+      id = (await this.generateExternalIdForUser(authUser)).externalId;
     }
+    externalId = id;
 
     const amountNum = Number(dto.amount);
     if (Number.isNaN(amountNum) || amountNum <= 0) {
