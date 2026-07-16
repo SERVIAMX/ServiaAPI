@@ -2,7 +2,6 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
-  HttpException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -60,20 +59,6 @@ interface MovivendorLoginResponse {
   code: number;
   message?: string;
   data?: MovivendorLoginData;
-}
-
-function mensajeDeError(e: unknown): string {
-  if (e instanceof HttpException) {
-    const res = e.getResponse();
-    if (typeof res === 'string') return res;
-    if (isRecord(res) && res.message != null) {
-      const msg = res.message;
-      if (Array.isArray(msg)) return msg.map(String).join(', ');
-      return String(msg);
-    }
-  }
-  if (e instanceof Error) return e.message;
-  return 'Error al asignar saldo';
 }
 
 @Injectable()
@@ -360,32 +345,22 @@ export class BalanceService {
   async solicitarCreditoPropio(
     authUser: { userId: number; clientId: number },
     amount: number,
-  ): Promise<{ success: boolean; message: string }> {
-    try {
-      if (!authUser.clientId) {
-        return {
-          success: false,
-          message: 'Usuario sin cliente asignado',
-        };
-      }
-      await this.ajustarSaldoCliente(
-        {
-          customerId: authUser.clientId,
-          amount,
-          requiresCredit: true,
-        },
-        authUser,
-      );
-      return {
-        success: true,
-        message: 'Saldo asignado correctamente',
-      };
-    } catch (e) {
-      return {
-        success: false,
-        message: mensajeDeError(e),
-      };
+  ): Promise<{ success: true; message: string }> {
+    if (!authUser.clientId) {
+      throw new BadRequestException('Usuario sin cliente asignado');
     }
+    await this.ajustarSaldoCliente(
+      {
+        customerId: authUser.clientId,
+        amount,
+        requiresCredit: true,
+      },
+      authUser,
+    );
+    return {
+      success: true,
+      message: 'Saldo asignado correctamente',
+    };
   }
 
   async obtenerCustomerBalance(clientId: number): Promise<{

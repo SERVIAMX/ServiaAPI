@@ -3,6 +3,8 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiExtraModels,
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -19,12 +21,13 @@ import { FilterBalanceHistoryDto } from './dto/filter-balance-history.dto';
 import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
 import { RequestSelfCreditDto } from './dto/request-self-credit.dto';
 import { RequestSelfCreditResponseDto } from './dto/request-self-credit-response.dto';
+import { RequestSelfCreditErrorResponseDto } from './dto/request-self-credit-error-response.dto';
 import type { Request } from 'express';
 
 type AuthUser = { userId: number; clientId: number; roleId?: number };
 
 @ApiTags('Balance')
-@ApiExtraModels(RequestSelfCreditResponseDto)
+@ApiExtraModels(RequestSelfCreditResponseDto, RequestSelfCreditErrorResponseDto)
 @Controller('balance')
 export class BalanceController {
   constructor(private readonly balanceService: BalanceService) {}
@@ -73,8 +76,8 @@ export class BalanceController {
       '- En `CreditBalance` se suma `Acreditado` (monto con bonificación por `DiscountPercentage`).',
       '- En `BalanceHistory` se guardan `Amount` (monto SPEI) y `Acreditado`.',
       '',
-      '**Respuesta:** siempre `{ success, message }` sin envoltorio estándar de la API.',
-      'Los errores de negocio regresan HTTP 200 con `success: false`.',
+      '**Respuesta éxito (HTTP 200):** `{ success: true, message }` sin envoltorio estándar.',
+      '**Errores (HTTP 4xx):** `{ success: false, statusCode, message, data, timestamp }` vía filtro global.',
     ].join('\n'),
   })
   @ApiBody({
@@ -87,8 +90,7 @@ export class BalanceController {
     },
   })
   @ApiOkResponse({
-    description:
-      'Resultado de la solicitud. Éxito y errores de negocio usan este mismo esquema (HTTP 200).',
+    description: 'Crédito asignado correctamente (HTTP 200).',
     content: {
       'application/json': {
         schema: { $ref: getSchemaPath(RequestSelfCreditResponseDto) },
@@ -100,34 +102,93 @@ export class BalanceController {
               message: 'Saldo asignado correctamente',
             },
           },
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Validación de negocio o body inválido (HTTP 400). Ej.: crédito pendiente, límite excedido, sin CreditLine.',
+    content: {
+      'application/json': {
+        schema: { $ref: getSchemaPath(RequestSelfCreditErrorResponseDto) },
+        examples: {
           creditoPendiente: {
             summary: 'Ya tiene crédito pendiente de pago',
             value: {
               success: false,
+              statusCode: 400,
               message:
                 'El cliente tiene un abono pendiente de pago (BalanceHistory isPaid = 0). Solo puede recibir saldo pagado hasta liquidarlo.',
+              data: null,
+              timestamp: '2026-07-16T17:00:00.000Z',
             },
           },
           limiteExcedido: {
             summary: 'Monto excede línea de crédito',
             value: {
               success: false,
+              statusCode: 400,
               message:
                 'El monto solicitado excede la línea de crédito disponible',
+              data: null,
+              timestamp: '2026-07-16T17:00:00.000Z',
             },
           },
           sinCreditLine: {
             summary: 'Cliente sin línea de crédito',
             value: {
               success: false,
+              statusCode: 400,
               message: 'Cliente sin CreditLine configurado',
+              data: null,
+              timestamp: '2026-07-16T17:00:00.000Z',
             },
           },
         },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'JWT ausente o inválido' })
+  @ApiNotFoundResponse({
+    description: 'Cliente no encontrado (HTTP 404).',
+    content: {
+      'application/json': {
+        schema: { $ref: getSchemaPath(RequestSelfCreditErrorResponseDto) },
+        examples: {
+          clienteNoEncontrado: {
+            summary: 'Cliente inexistente',
+            value: {
+              success: false,
+              statusCode: 404,
+              message: 'Cliente no encontrado',
+              data: null,
+              timestamp: '2026-07-16T17:00:00.000Z',
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'JWT ausente o inválido (HTTP 401).',
+    content: {
+      'application/json': {
+        schema: { $ref: getSchemaPath(RequestSelfCreditErrorResponseDto) },
+        examples: {
+          noAutorizado: {
+            summary: 'Sin token',
+            value: {
+              success: false,
+              statusCode: 401,
+              message: 'Unauthorized',
+              data: null,
+              timestamp: '2026-07-16T17:00:00.000Z',
+            },
+          },
+        },
+      },
+    },
+  })
   solicitarCredito(
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: RequestSelfCreditDto,
