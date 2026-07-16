@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -59,6 +60,20 @@ interface MovivendorLoginResponse {
   code: number;
   message?: string;
   data?: MovivendorLoginData;
+}
+
+function mensajeDeError(e: unknown): string {
+  if (e instanceof HttpException) {
+    const res = e.getResponse();
+    if (typeof res === 'string') return res;
+    if (isRecord(res) && res.message != null) {
+      const msg = res.message;
+      if (Array.isArray(msg)) return msg.map(String).join(', ');
+      return String(msg);
+    }
+  }
+  if (e instanceof Error) return e.message;
+  return 'Error al asignar saldo';
 }
 
 @Injectable()
@@ -276,9 +291,9 @@ export class BalanceService {
           throw new BadRequestException('Cliente sin CreditLine configurado');
         }
         const available = creditLine - currentCredit;
-        if (acreditado > available) {
+        if (amount > available) {
           throw new BadRequestException(
-            'El monto acreditado (con bonificación) excede la línea de crédito disponible',
+            'El monto solicitado excede la línea de crédito disponible',
           );
         }
         cb.creditBalance = (currentCredit + acreditado).toFixed(2);
@@ -291,6 +306,7 @@ export class BalanceService {
       const hist = this.balanceHistoryRepository.create({
         customer: client,
         amount: amount.toFixed(2),
+        acreditado: acreditado.toFixed(2),
         transactionType: requiresCredit ? 2 : 1,
         isPaid: requiresCredit ? 0 : 1,
       });
@@ -313,7 +329,18 @@ export class BalanceService {
         },
       });
 
-      return cb;
+      return {
+        customerId,
+        amount: amount.toFixed(2),
+        acreditado: acreditado.toFixed(2),
+        montoSpei: amount.toFixed(2),
+        balanceHistoryId: savedHist.id,
+        balance: cb.balance,
+        creditBalance: cb.creditBalance,
+        creditLine: client.creditLine,
+        transactionType: requiresCredit ? 2 : 1,
+        isPaid: requiresCredit ? 0 : 1,
+      };
     });
     } catch (e) {
       await this.auditLogService.record({
@@ -326,6 +353,38 @@ export class BalanceService {
         message: e instanceof Error ? e.message : String(e),
       });
       throw e;
+    }
+  }
+
+  /** El cliente autenticado solicita crédito sobre su propia cuenta (`clientId` del JWT). */
+  async solicitarCreditoPropio(
+    authUser: { userId: number; clientId: number },
+    amount: number,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      if (!authUser.clientId) {
+        return {
+          success: false,
+          message: 'Usuario sin cliente asignado',
+        };
+      }
+      await this.ajustarSaldoCliente(
+        {
+          customerId: authUser.clientId,
+          amount,
+          requiresCredit: true,
+        },
+        authUser,
+      );
+      return {
+        success: true,
+        message: 'Saldo asignado correctamente',
+      };
+    } catch (e) {
+      return {
+        success: false,
+        message: mensajeDeError(e),
+      };
     }
   }
 
@@ -381,6 +440,7 @@ export class BalanceService {
       data: data.map((h) => ({
         id: h.id,
         amount: h.amount,
+        acreditado: h.acreditado,
         fhRegistro: h.fhRegistro,
         transactionType: h.transactionType === 2 ? 'Credito' : 'Pagado',
         isPaid: h.isPaid === 1 ? 'Pagado' : 'Pendiente',
@@ -432,6 +492,7 @@ export class BalanceService {
         customerId: h.customer?.id ?? null,
         cliente: this.clienteNombreConId(h.customer ?? undefined),
         amount: h.amount,
+        acreditado: h.acreditado,
         fhRegistro: h.fhRegistro,
         transactionType: h.transactionType === 2 ? 'Credito' : 'Pagado',
         isPaid: 'Pendiente',

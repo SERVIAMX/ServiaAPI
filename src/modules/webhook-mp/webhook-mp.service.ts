@@ -352,6 +352,7 @@ export class WebhookMpService {
       const hist = manager.create(BalanceHistory, {
         customer: client,
         amount: amount.toFixed(2),
+        acreditado: acreditado.toFixed(2),
         transactionType: 1,
         isPaid: 1,
       });

@@ -1,3 +1,4 @@
+import { calcularSaldoAcreditadoConBonificacion } from '../../common/utils/client-balance-bonus.util';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -91,16 +92,22 @@ export class ClientsService {
           this.balanceHistoryRepository.create({
             customer: savedClient,
             amount: creditBalVal.toFixed(2),
+            acreditado: creditBalVal.toFixed(2),
             transactionType: 2,
             isPaid: 0,
           }),
         );
       }
       if (amountVal > 0) {
+        const acreditadoInicial = calcularSaldoAcreditadoConBonificacion(
+          amountVal,
+          savedClient.discountPercentage,
+        );
         historyToInsert.push(
           this.balanceHistoryRepository.create({
             customer: savedClient,
             amount: amountVal.toFixed(2),
+            acreditado: acreditadoInicial.toFixed(2),
             transactionType: 1,
             isPaid: 1,
           }),

@@ -153,7 +153,10 @@ function movivendorCodeToString(code: unknown): string {
 
 function formatExcelDateTime(d: Date | null | undefined): string {
   if (!d) return '';
-  return d.toLocaleString('es-MX', {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return '';
+  // Formato fijo YYYY-MM-DD HH:mm:ss en America/Mexico_City (más estable en Excel).
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
     month: '2-digit',
@@ -162,7 +165,10 @@ function formatExcelDateTime(d: Date | null | undefined): string {
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-  });
+  }).formatToParts(dt);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
 }
 
 @Injectable()
@@ -210,7 +216,11 @@ export class TransactionsService {
   }
 
   private async buildTransactionsExcel(
-    rows: Transaction[],
+    rows: Array<{
+      externalId: string;
+      fhRegister: Date;
+      fhCheckStatus?: Date | null;
+    }>,
     fromLabel: string,
     toLabel: string,
   ): Promise<{ buffer: Buffer; filename: string }> {
@@ -218,6 +228,23 @@ export class TransactionsService {
       await this.auditLogService.findCheckStatusTimesByReferenceIds(
         rows.map((t) => t.externalId),
       );
+
+    // Si no hay bitácora pero sí FHCheckStatus en la tx, úsalo como SaleCheck 1.
+    for (const t of rows) {
+      const key = String(t.externalId ?? '').trim();
+      if (!key) continue;
+      const existing = checksByExternalId.get(key);
+      if (existing && existing.length > 0) continue;
+      if (t.fhCheckStatus) {
+        const fh =
+          t.fhCheckStatus instanceof Date
+            ? t.fhCheckStatus
+            : new Date(t.fhCheckStatus);
+        if (!Number.isNaN(fh.getTime())) {
+          checksByExternalId.set(key, [fh]);
+        }
+      }
+    }
 
     let maxChecks = 0;
     for (const times of checksByExternalId.values()) {
@@ -231,12 +258,14 @@ export class TransactionsService {
     ];
 
     const dataRows = rows.map((t) => {
-      const checks = checksByExternalId.get(String(t.externalId).trim()) ?? [];
+      const key = String(t.externalId ?? '').trim();
+      const checks = checksByExternalId.get(key) ?? [];
       const checkCells = Array.from({ length: maxChecks }, (_, i) =>
         formatExcelDateTime(checks[i]),
       );
       return [
-        t.externalId,
+        // Prefijo tabular para forzar texto en Excel (evita notación científica / perder ceros).
+        `\t${key}`,
         formatExcelDateTime(t.fhRegister),
         ...checkCells,
       ];
@@ -244,10 +273,92 @@ export class TransactionsService {
 
     const safeFrom = fromLabel.trim().slice(0, 10);
     const safeTo = toLabel.trim().slice(0, 10);
+    this.logger.log(
+      `[excel] filas=${dataRows.length} maxSaleChecks=${maxChecks} rango=${safeFrom}..${safeTo}`,
+    );
     return {
       buffer: buildExcelXmlSpreadsheet('SaleChecks', headers, dataRows),
       filename: `transacciones_salecheck_${safeFrom}_${safeTo}.xls`,
     };
+  }
+
+  /** Une Transactions + TransactionsHistory por ExternalId (prioriza actual). */
+  private async loadExcelTransactionRows(opts: {
+    from: Date;
+    to: Date;
+    userId?: number;
+  }): Promise<
+    Array<{ externalId: string; fhRegister: Date; fhCheckStatus: Date | null }>
+  > {
+    const whereCurrent =
+      opts.userId != null
+        ? {
+            user: { id: opts.userId },
+            fhRegister: Between(opts.from, opts.to),
+          }
+        : { fhRegister: Between(opts.from, opts.to) };
+
+    const whereHistory =
+      opts.userId != null
+        ? {
+            user: { id: opts.userId },
+            fhRegister: Between(opts.from, opts.to),
+          }
+        : { fhRegister: Between(opts.from, opts.to) };
+
+    const [current, history] = await Promise.all([
+      this.txRepo.find({
+        where: whereCurrent,
+        select: {
+          externalId: true,
+          fhRegister: true,
+          fhCheckStatus: true,
+          idTransaction: true,
+        },
+        order: { idTransaction: 'DESC' },
+      }),
+      this.txHistoryRepo.find({
+        where: whereHistory,
+        select: {
+          externalId: true,
+          fhRegister: true,
+          fhCheckStatus: true,
+          idTransaction: true,
+        },
+        order: { idTransaction: 'DESC' },
+      }),
+    ]);
+
+    const byExternalId = new Map<
+      string,
+      { externalId: string; fhRegister: Date; fhCheckStatus: Date | null }
+    >();
+
+    // Historial primero; actual pisa si hay duplicado.
+    for (const t of history) {
+      const key = String(t.externalId ?? '').trim();
+      if (!key) continue;
+      byExternalId.set(key, {
+        externalId: key,
+        fhRegister: t.fhRegister,
+        fhCheckStatus: t.fhCheckStatus ?? null,
+      });
+    }
+    for (const t of current) {
+      const key = String(t.externalId ?? '').trim();
+      if (!key) continue;
+      byExternalId.set(key, {
+        externalId: key,
+        fhRegister: t.fhRegister,
+        fhCheckStatus: t.fhCheckStatus ?? null,
+      });
+    }
+
+    return [...byExternalId.values()].sort((a, b) => {
+      const ta = new Date(a.fhRegister).getTime();
+      const tb = new Date(b.fhRegister).getTime();
+      return tb - ta;
+    });
   }
 
   private parseFilterRange(filter: FilterTransactionsDto): {
@@ -988,14 +1099,7 @@ export class TransactionsService {
     if (!userId) throw new UnauthorizedException('Usuario no autenticado');
 
     const { from, to } = this.parseFilterRange(filter);
-    const rows = await this.txRepo.find({
-      where: {
-        user: { id: userId },
-        fhRegister: Between(from, to),
-      },
-      order: { idTransaction: 'DESC' },
-    });
-
+    const rows = await this.loadExcelTransactionRows({ from, to, userId });
     return this.buildTransactionsExcel(rows, filter.from, filter.to);
   }
 
@@ -1003,11 +1107,7 @@ export class TransactionsService {
     filter: FilterTransactionsDto,
   ): Promise<{ buffer: Buffer; filename: string }> {
     const { from, to } = this.parseFilterRange(filter);
-    const rows = await this.txRepo.find({
-      where: { fhRegister: Between(from, to) },
-      order: { idTransaction: 'DESC' },
-    });
-
+    const rows = await this.loadExcelTransactionRows({ from, to });
     return this.buildTransactionsExcel(rows, filter.from, filter.to);
   }
 }

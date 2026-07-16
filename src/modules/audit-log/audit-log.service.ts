@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, FindOptionsWhere, Repository } from 'typeorm';
+import { Between, FindOptionsWhere, In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { User } from '../users/entities/user.entity';
 import {
@@ -139,31 +139,46 @@ export class AuditLogService {
     referenceIds: string[],
   ): Promise<Map<string, Date[]>> {
     const map = new Map<string, Date[]>();
-    const ids = [...new Set(referenceIds.map((id) => String(id).trim()).filter(Boolean))];
+    const ids = [
+      ...new Set(
+        referenceIds
+          .map((id) => String(id ?? '').trim())
+          .filter((id) => id.length > 0),
+      ),
+    ];
     if (ids.length === 0) return map;
 
-    const rows = await this.auditRepo
-      .createQueryBuilder('a')
-      .select('a.referenceId', 'referenceId')
-      .addSelect('a.fhRegister', 'fhRegister')
-      .where('a.operationType = :op', { op: AUDIT_OPERATION.CHECK_STATUS })
-      .andWhere('a.referenceId IN (:...ids)', { ids })
-      .orderBy('a.fhRegister', 'ASC')
-      .addOrderBy('a.id', 'ASC')
-      .getRawMany<{ referenceId: string | null; fhRegister: Date | string }>();
+    // Chunks para evitar límites de IN (...) en MySQL.
+    const chunkSize = 500;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const rows = await this.auditRepo.find({
+        where: {
+          operationType: AUDIT_OPERATION.CHECK_STATUS,
+          referenceId: In(chunk),
+        },
+        select: {
+          id: true,
+          referenceId: true,
+          fhRegister: true,
+        },
+        order: { fhRegister: 'ASC', id: 'ASC' },
+      });
 
-    for (const row of rows) {
-      const key = String(row.referenceId ?? '').trim();
-      if (!key) continue;
-      const fh =
-        row.fhRegister instanceof Date
-          ? row.fhRegister
-          : new Date(row.fhRegister);
-      if (Number.isNaN(fh.getTime())) continue;
-      const list = map.get(key) ?? [];
-      list.push(fh);
-      map.set(key, list);
+      for (const row of rows) {
+        const key = String(row.referenceId ?? '').trim();
+        if (!key) continue;
+        const fh =
+          row.fhRegister instanceof Date
+            ? row.fhRegister
+            : new Date(row.fhRegister);
+        if (Number.isNaN(fh.getTime())) continue;
+        const list = map.get(key) ?? [];
+        list.push(fh);
+        map.set(key, list);
+      }
     }
+
     return map;
   }
 

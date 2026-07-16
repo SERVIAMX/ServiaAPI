@@ -52,5 +52,15 @@ export class BalanceHistory {
     nullable: true,
   })
   isPaid: number | null;
+
+  /** Monto real sumado a CreditBalance/Balance (con bonificación). */
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'Acreditado',
+  })
+  acreditado: string | null;
 }
 
