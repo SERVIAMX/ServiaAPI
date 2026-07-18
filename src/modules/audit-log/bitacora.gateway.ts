@@ -28,6 +28,8 @@ export type BitacoraCreatedPayload = {
 
 @WebSocketGateway({
   namespace: '/bitacora',
+  /** Path del engine Socket.IO (no confundir con el namespace). Bajo `/api` para proxies típicos. */
+  path: '/api/socket.io',
   cors: {
     origin: true,
     credentials: true,
