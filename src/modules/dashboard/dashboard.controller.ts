@@ -49,10 +49,19 @@ export class DashboardController {
 
   @Post('bitacora')
   @ApiBearerAuth()
+  @ApiBody({
+    type: FilterAuditLogDto,
+    examples: {
+      rango: {
+        summary: 'Rango de fechas',
+        value: { from: '2026-07-01', to: '2026-07-18' },
+      },
+    },
+  })
   @ApiOperation({
-    summary: 'Bitácora de operaciones (transacciones, check-status, abonos)',
+    summary: 'Bitácora de operaciones (sin paginación)',
     description:
-      'Registros de `OperationAuditLog`. Filtros: `clientId`, `operationType` (transaction_create | check_status | balance_assign), `status`, `from`/`to`, paginación. Solo Super Administrador / Administrador.',
+      'Lista completa de `OperationAuditLog` entre `from` y `to` (requeridos). Sin paginación ni otros filtros. Solo Super Administrador / Administrador. Actualizaciones en vivo vía WebSocket namespace `/bitacora`, evento `bitacora:created`.',
   })
   obtenerBitacora(
     @CurrentUser() user: CurrentUserPayload,

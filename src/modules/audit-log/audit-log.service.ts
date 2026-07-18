@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
@@ -7,6 +7,7 @@ import {
   AUDIT_OPERATION,
   RecordAuditLogInput,
 } from './audit-log.types';
+import { BitacoraGateway } from './bitacora.gateway';
 import { FilterAuditLogDto } from './dto/filter-audit-log.dto';
 import { OperationAuditLog } from './entities/operation-audit-log.entity';
 
@@ -45,6 +46,7 @@ export class AuditLogService {
   constructor(
     @InjectRepository(OperationAuditLog)
     private readonly auditRepo: Repository<OperationAuditLog>,
+    @Optional() private readonly bitacoraGateway?: BitacoraGateway,
   ) {}
 
   /** Registra operación sin interrumpir el flujo principal si falla el INSERT. */
@@ -67,7 +69,15 @@ export class AuditLogService {
         responsePayload: input.responsePayload ?? null,
         message: input.message?.trim()?.slice(0, 500) || null,
       });
-      await this.auditRepo.save(row);
+      const saved = await this.auditRepo.save(row);
+
+      const full = await this.auditRepo.findOne({
+        where: { id: saved.id },
+        relations: { client: true, user: true },
+      });
+      if (full) {
+        this.bitacoraGateway?.emitCreated(this.mapRow(full));
+      }
     } catch (err) {
       this.logger.error(
         `No se pudo registrar bitácora (${input.operationType}): ${err instanceof Error ? err.message : err}`,
@@ -75,61 +85,33 @@ export class AuditLogService {
     }
   }
 
+  /** Lista completa por rango de fechas (sin paginación). */
   async findFiltered(filter: FilterAuditLogDto) {
-    const page = filter.page ?? 1;
-    const limit = filter.limit ?? 20;
-
-    const where: FindOptionsWhere<OperationAuditLog> = {};
-
-    if (filter.clientId != null && filter.clientId > 0) {
-      where.client = { id: filter.clientId };
+    const fromRaw = filter.from?.trim();
+    const toRaw = filter.to?.trim();
+    if (!fromRaw || !toRaw) {
+      throw new BadRequestException('from y to son requeridos');
     }
 
-    if (filter.operationType?.trim()) {
-      where.operationType = filter.operationType.trim();
+    const from = parseRangeStart(fromRaw);
+    const to = parseRangeEnd(toRaw);
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException(
+        'El rango de fechas es inválido (from > to)',
+      );
     }
 
-    if (filter.status?.trim()) {
-      where.status = filter.status.trim();
-    }
+    const where: FindOptionsWhere<OperationAuditLog> = {
+      fhRegister: Between(from, to),
+    };
 
-    if (filter.from?.trim() && filter.to?.trim()) {
-      const from = parseRangeStart(filter.from);
-      const to = parseRangeEnd(filter.to);
-      where.fhRegister = Between(from, to);
-    }
-
-    const [rows, total] = await this.auditRepo.findAndCount({
+    const rows = await this.auditRepo.find({
       where,
       relations: { client: true, user: true },
       order: { id: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
     });
 
-    return {
-      data: rows.map((r) => ({
-        id: r.id,
-        fhRegister: r.fhRegister,
-        operationType: r.operationType,
-        operationLabel: this.operationLabel(r.operationType),
-        status: r.status,
-        clientId: r.client?.id ?? null,
-        cliente: clientLabel(r.client),
-        userId: r.user?.id ?? null,
-        referenceId: r.referenceId,
-        amount: r.amount,
-        requestPayload: r.requestPayload,
-        responsePayload: r.responsePayload,
-        message: r.message,
-      })),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit) || 1,
-      },
-    };
+    return rows.map((r) => this.mapRow(r));
   }
 
   /**
@@ -148,7 +130,6 @@ export class AuditLogService {
     ];
     if (ids.length === 0) return map;
 
-    // Chunks para evitar límites de IN (...) en MySQL.
     const chunkSize = 500;
     for (let i = 0; i < ids.length; i += chunkSize) {
       const chunk = ids.slice(i, i + chunkSize);
@@ -180,6 +161,24 @@ export class AuditLogService {
     }
 
     return map;
+  }
+
+  private mapRow(r: OperationAuditLog) {
+    return {
+      id: r.id,
+      fhRegister: r.fhRegister,
+      operationType: r.operationType,
+      operationLabel: this.operationLabel(r.operationType),
+      status: r.status,
+      clientId: r.client?.id ?? null,
+      cliente: clientLabel(r.client),
+      userId: r.user?.id ?? null,
+      referenceId: r.referenceId,
+      amount: r.amount,
+      requestPayload: r.requestPayload,
+      responsePayload: r.responsePayload,
+      message: r.message,
+    };
   }
 
   private operationLabel(type: string): string {
