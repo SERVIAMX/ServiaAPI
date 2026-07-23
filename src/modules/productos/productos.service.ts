@@ -19,6 +19,7 @@ import {
   looksLikeMovivendorGatewayTimeout,
 } from '../../common/exceptions/movivendor-timeout.exception';
 import type { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
+import { toProxiedImageUrl } from '../../common/utils/image-proxy.util';
 import type {
   MarcasListaPaginatedResponse,
   MarcasListaPorTipoDto,
@@ -431,6 +432,31 @@ export class ProductosService {
     return typeof v === 'string' ? v.trim() : v;
   }
 
+  /** Base pública del API (ej. https://servia.mx) para armar URLs de image-proxy. */
+  private publicBaseUrl(): string {
+    return (
+      this.cfg('APP_PUBLIC_URL') ||
+      this.cfg('PUBLIC_API_URL') ||
+      ''
+    );
+  }
+
+  private proxyLogo(url: string | null | undefined): string {
+    return toProxiedImageUrl(this.publicBaseUrl(), url);
+  }
+
+  private withProxiedMarcasLogos(
+    grupos: MarcasListaPorTipoDto,
+  ): MarcasListaPorTipoDto {
+    return grupos.map((g) => ({
+      tipo: g.tipo,
+      marcas: g.marcas.map((m) => ({
+        marca: m.marca,
+        service_logo: this.proxyLogo(m.service_logo),
+      })),
+    }));
+  }
+
   private logMovivendorCurl(
     logTag: string,
     label: string,
@@ -679,7 +705,7 @@ export class ProductosService {
   ): Promise<MarcasListaPaginatedResponse> {
     const servicios = await this.fetchProductosNormalizados();
     const grupos = groupByTipoYMarca(servicios);
-    const full = mapGruposAMarcasLigeras(grupos);
+    const full = this.withProxiedMarcasLogos(mapGruposAMarcasLigeras(grupos));
     const { data, porTipo } = sliceMarcasPerTipo(full, page, limit);
     return {
       data,
@@ -698,7 +724,7 @@ export class ProductosService {
   ): Promise<MarcasListaPaginatedResponse> {
     const servicios = await this.fetchProductosNormalizados();
     const grupos = groupByTipoYMarca(servicios);
-    const full = mapGruposAMarcasLigeras(grupos);
+    const full = this.withProxiedMarcasLogos(mapGruposAMarcasLigeras(grupos));
     const filtered = filterMarcasLigerasPorNombre(full, nombre);
     const { data, porTipo } = sliceMarcasPerTipo(filtered, page, limit);
     return {
@@ -724,7 +750,13 @@ export class ProductosService {
     const total = filtered.length;
     const start = (page - 1) * limit;
     const slice = filtered.slice(start, start + limit);
-    const data = slice.map(toProductoVentaSeleccion);
+    const data = slice.map((p) => {
+      const item = toProductoVentaSeleccion(p);
+      return {
+        ...item,
+        service_logo: this.proxyLogo(item.service_logo),
+      };
+    });
     return {
       data,
       meta: {

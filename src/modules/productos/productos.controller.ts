@@ -27,7 +27,7 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Marcas por tipo (Movivendor)',
     description:
-      'Marcas agrupadas por `tipo`. En cada bloque, hasta `limit` marcas de ese tipo (por defecto 6); `page` aplica por igual a todos los tipos. `meta.porTipo` indica `total` y `totalPages` por tipo. Los tipos sin marcas en esa página no aparecen en `data`. Una petición a Movivendor.',
+      'Marcas agrupadas por `tipo`. En cada bloque, hasta `limit` marcas de ese tipo (por defecto 6); `page` aplica por igual a todos los tipos. `meta.porTipo` indica `total` y `totalPages` por tipo. Los tipos sin marcas en esa página no aparecen en `data`. `service_logo` se reescribe vía `/api/image-proxy` (requiere `APP_PUBLIC_URL`). Una petición a Movivendor.',
   })
   marcas(@Query() query: ProductosMarcasQueryDto) {
     return this.productosService.getMarcas(query.page ?? 1, query.limit ?? 6);
@@ -37,7 +37,7 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Buscar marcas por nombre (Movivendor)',
     description:
-      'Misma respuesta que `GET /productos/marcas`: `data` + `meta` con paginación por tipo. Filtra marcas donde el nombre contiene `nombre` (equivalente a `LIKE %nombre%`, sin distinguir mayúsculas). Tipos sin coincidencias no aparecen en `meta.porTipo`. Una petición a Movivendor.',
+      'Misma respuesta que `GET /productos/marcas`: `data` + `meta` con paginación por tipo. Filtra marcas donde el nombre contiene `nombre` (equivalente a `LIKE %nombre%`, sin distinguir mayúsculas). Tipos sin coincidencias no aparecen en `meta.porTipo`. `service_logo` vía image-proxy. Una petición a Movivendor.',
   })
   marcasBuscar(@Query() query: ProductosMarcasBuscarQueryDto) {
     return this.productosService.getMarcasPorNombre(
@@ -51,7 +51,7 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Productos por marca (paginado, listo para venta)',
     description:
-      'Misma fuente que marcas. `data` sin `service_last_update`: `service_group`, `service_sku`, `service_name`, `service_logo`, `destination` (validación del número) y `offers` (`id`, `amount`, `subprod`, `plan`) para enlazar con ejecutarTx en [Integración Movivendor](https://integra.movivendor.com/restV1/metodos/ejecutarTx).',
+      'Misma fuente que marcas. `data` sin `service_last_update`: `service_group`, `service_sku`, `service_name`, `service_logo` (proxied), `destination` (validación del número) y `offers` (`id`, `amount`, `subprod`, `plan`) para enlazar con ejecutarTx en [Integración Movivendor](https://integra.movivendor.com/restV1/metodos/ejecutarTx).',
   })
   productosPorMarca(@Query() query: ProductosPorMarcaQueryDto) {
     return this.productosService.getProductosPorMarca(

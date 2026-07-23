@@ -17,6 +17,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
 import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
+import { ImageProxyModule } from './modules/image-proxy/image-proxy.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
     DashboardModule,
     TransactionsModule,
     WebhookMpModule,
+    ImageProxyModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
