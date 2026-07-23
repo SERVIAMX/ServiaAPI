@@ -18,6 +18,7 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
 import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
 import { ImageProxyModule } from './modules/image-proxy/image-proxy.module';
+import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ImageProxyModule } from './modules/image-proxy/image-proxy.module';
       useFactory: (cfg: ConfigService) => createTypeOrmOptions(cfg),
     }),
     TypeOrmModule.forFeature([Role]),
+    RedisModule,
     AuthModule,
     UsersModule,
     ClientsModule,

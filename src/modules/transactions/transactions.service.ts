@@ -25,6 +25,7 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
 import { TransactionHistory } from './entities/transaction-history.entity';
 import { recargaEstadoFromCode, Transaction } from './entities/transaction.entity';
+import { TransactionGateService } from './transaction-gate.service';
 
 function recargaEstadoFromMovivendor(json: unknown): 'exitosa' | 'fallida' | 'pendiente' {
   if (typeof json !== 'object' || json === null) return 'pendiente';
@@ -189,6 +190,7 @@ export class TransactionsService {
     private readonly productosService: ProductosService,
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
+    private readonly transactionGate: TransactionGateService,
   ) {}
 
   private mapTransactionListItem(t: Transaction) {
@@ -822,6 +824,8 @@ export class TransactionsService {
   }
 
   async createTransaction(authUser: { userId: number; clientId: number }, dto: CreateTransactionDto) {
+    await this.transactionGate.assertNotPaused();
+
     let savedIdTransaction: number | undefined;
     let externalId: string | undefined;
 

@@ -21,11 +21,15 @@ import {
 import type { Request, Response } from 'express';
 import { SkipResponseInterceptor } from '../../common/decorators/skip-response-interceptor.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUserPayload } from '../../common/interfaces/current-user-payload.interface';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { CheckStatusDto } from './dto/check-status.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
+import { SetTransactionGateDto } from './dto/set-transaction-gate.dto';
 import { TransactionByExternalIdDto } from './dto/transaction-by-external-id.dto';
 import { TransactionListItemDto } from './dto/transaction-list-item.dto';
+import { TransactionGateService } from './transaction-gate.service';
 import { TransactionsService } from './transactions.service';
 
 type AuthUser = { userId: number; clientId: number; roleId?: number };
@@ -34,7 +38,36 @@ type AuthUser = { userId: number; clientId: number; roleId?: number };
 @ApiExtraModels(TransactionListItemDto, TransactionByExternalIdDto)
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private readonly transactionsService: TransactionsService) {}
+  constructor(
+    private readonly transactionsService: TransactionsService,
+    private readonly transactionGate: TransactionGateService,
+  ) {}
+
+  @Get('gate')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Estado del gate de transacciones',
+    description:
+      'Indica si las ventas están pausadas (`paused`) y si el backend es Redis o memoria. Cualquier usuario autenticado puede consultar.',
+  })
+  getGate() {
+    return this.transactionGate.getStatus();
+  }
+
+  @Post('gate')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Pausar / reanudar transacciones (admin)',
+    description:
+      'Si `paused=true`, nadie puede registrar ventas en `POST /transactions` (HTTP 503) hasta poner `paused=false`. Solo Super Administrador / Administrador. Preferible Redis (`REDIS_URL` o `REDIS_HOST`) para multi-instancia.',
+  })
+  async setGate(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: SetTransactionGateDto,
+  ) {
+    await this.transactionGate.assertPrivilegedAdmin(user.roleId);
+    return this.transactionGate.setPaused(dto.paused);
+  }
 
   @Get('all/excel')
   @SkipResponseInterceptor()
@@ -210,7 +243,7 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'CreateTransaction',
     description:
-      'Crea registro en Transactions y ejecuta venta Movivendor. Si envías `externalId` (de `POST /transactions/external-id`) se usa ese; si no, la API lo genera.',
+      'Crea registro en Transactions y ejecuta venta Movivendor. Si envías `externalId` (de `POST /transactions/external-id`) se usa ese; si no, la API lo genera. Rechaza con 503 si el gate está pausado (`POST /transactions/gate`).',
   })
   createTransaction(@Req() req: Request, @Body() dto: CreateTransactionDto) {
     const authUser = req.user as AuthUser | undefined;
