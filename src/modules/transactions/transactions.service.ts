@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, Repository } from 'typeorm';
 import { buildExcelXmlSpreadsheet } from '../../common/utils/spreadsheet.util';
-import { MOVIVENDOR_VENTA_DELAY_SECONDS } from '../../common/constants/movivendor-timing.constants';
+import { MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS } from '../../common/constants/movivendor-timing.constants';
 import { runInTransaction } from '../../database/query-runner.util';
 import { MovivendorTimeoutException } from '../../common/exceptions/movivendor-timeout.exception';
 import {
@@ -911,7 +911,7 @@ export class TransactionsService {
         isCredit: creditFlag,
         esTAE,
         responseProvider: null,
-        ventaDurationSeconds: MOVIVENDOR_VENTA_DELAY_SECONDS.toFixed(2),
+        ventaDurationSeconds: null,
       });
       const saved = await manager.save(tx);
 
@@ -1079,7 +1079,9 @@ export class TransactionsService {
       { idTransaction: params.idTransaction },
       {
         responseProvider: movivendor as object,
-        ventaDurationSeconds: MOVIVENDOR_VENTA_DELAY_SECONDS.toFixed(2),
+        ventaDurationSeconds: (
+          MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS / 1000
+        ).toFixed(2),
       },
     );
 

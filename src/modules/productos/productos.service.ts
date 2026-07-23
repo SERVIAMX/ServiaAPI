@@ -10,10 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'node:crypto';
 import { Repository } from 'typeorm';
-import {
-  MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS,
-  MOVIVENDOR_VENTA_DELAY_MS,
-} from '../../common/constants/movivendor-timing.constants';
+import { MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS } from '../../common/constants/movivendor-timing.constants';
 import {
   MovivendorTimeoutException,
   looksLikeMovivendorGatewayTimeout,
@@ -810,19 +807,6 @@ export class ProductosService {
     );
     this.logger.log(`${tag} Id Movivendor resuelto: ${movivendorId}`);
 
-    if (dto.idTransaction != null) {
-      await this.txRepo.update(
-        { idTransaction: dto.idTransaction },
-        {
-          ventaDurationSeconds: (
-            MOVIVENDOR_VENTA_DELAY_MS / 1000
-          ).toFixed(2),
-        },
-      );
-    }
-
-    this.logger.log(`${tag} extra.delay=${MOVIVENDOR_VENTA_DELAY_MS} (40s fijo)`);
-
     const payload = {
       token,
       id: movivendorId,
@@ -831,7 +815,6 @@ export class ProductosService {
       subprod: dto.subprod,
       destination: dto.destination,
       amount: dto.amount,
-      extra: { delay: MOVIVENDOR_VENTA_DELAY_MS },
     };
     const { token: _omit, ...payloadSafe } = payload;
     this.logger.log(
@@ -862,10 +845,13 @@ export class ProductosService {
       this.logger.error(
         `${tag} ${isAbort ? 'Timeout cliente' : 'Error de conexión'} con Movivendor (${Date.now() - startedAt}ms): ${msg}`,
       );
+      const timeoutSec = Math.round(MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS / 1000);
       throw new MovivendorTimeoutException(
-        isAbort ? 'venta (límite 20s cliente)' : 'venta (conexión)',
+        isAbort ? `venta (límite ${timeoutSec}s cliente)` : 'venta (conexión)',
         undefined,
-        isAbort ? 'Sin respuesta de Movivendor en 20 segundos' : msg,
+        isAbort
+          ? `Sin respuesta de Movivendor en ${timeoutSec} segundos`
+          : msg,
       );
     } finally {
       clearTimeout(clientTimeoutId);

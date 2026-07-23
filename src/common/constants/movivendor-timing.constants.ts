@@ -1,4 +1,2 @@
-/** Delay fijo enviado a Movivendor en do/tx. */
-export const MOVIVENDOR_VENTA_DELAY_SECONDS = 40;
-export const MOVIVENDOR_VENTA_DELAY_MS = MOVIVENDOR_VENTA_DELAY_SECONDS * 1000;
-export const MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS = MOVIVENDOR_VENTA_DELAY_MS;
+/** Timeout del cliente HTTP si Movivendor no responde (sin delay artificial). */
+export const MOVIVENDOR_VENTA_CLIENT_TIMEOUT_MS = 20_000;

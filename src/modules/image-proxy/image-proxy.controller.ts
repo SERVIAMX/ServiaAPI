@@ -35,9 +35,9 @@ export class ImageProxyController {
     description: [
       'Descarga desde `*.movivendor.com`.',
       'Si el SVG es vectorial (`path`/`g`/…), se devuelve igual.',
-      'Si contiene `<image xlink:href="data:image/png;base64,...">` y el PNG supera',
-      'ancho>4000, alto>4000 o ~20MB descomprimidos, redimensiona el PNG (lado largo ≤512),',
-      'reemplaza el Base64, actualiza width/height del `<image>` y responde `image/svg+xml`.',
+      'Si contiene `<image … data:image/…;base64>`, redimensiona el PNG embebido',
+      'y sustituye ÚNICAMENTE el Base64 en href/xlink:href.',
+      'No altera width/height/viewBox/transform/namespaces del SVG ni del `<image>`.',
       'No rasteriza SVG vectoriales. Mismo endpoint/contrato público.',
     ].join(' '),
   })

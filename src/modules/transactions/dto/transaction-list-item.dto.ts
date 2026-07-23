@@ -46,7 +46,7 @@ export class TransactionListItemDto {
   fhUpdate!: Date;
 
   @ApiPropertyOptional({
-    description: 'Segundos que tardó la venta en Movivendor (delay ~40s)',
+    description: 'Segundos que tardó la venta en Movivendor',
     example: '20.00',
     nullable: true,
   })

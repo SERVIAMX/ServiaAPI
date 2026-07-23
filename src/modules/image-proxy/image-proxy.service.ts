@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import sharp from 'sharp';
 
 /**
@@ -12,6 +14,32 @@ const EMBEDDED_DATA_URI_RE =
   /data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\r\n\t ]+)/gi;
 
 const OPTIMIZED_MARKER = '<!-- servia-image-proxy-optimized -->';
+
+/**
+ * TEMPORAL: volcar PNG original/optimizado + stats de píxeles a disco
+ * para validar que el resize no genera un buffer vacío/transparente.
+ * Quitar cuando se confirme el contenido visual del logo.
+ */
+const IMAGE_PROXY_DEBUG_DUMP = true;
+const IMAGE_PROXY_DEBUG_DIR = join(process.cwd(), 'tmp', 'image-proxy-debug');
+
+type PngPixelStats = {
+  width: number;
+  height: number;
+  channels: number;
+  opaque: number;
+  semi: number;
+  clear: number;
+  nonZeroRgb: number;
+  avgR: number;
+  avgG: number;
+  avgB: number;
+  avgA: number;
+  minLuma: number;
+  maxLuma: number;
+  fullyTransparent: boolean;
+  hasVisibleContent: boolean;
+};
 
 export type ImageProxyOptimizeOptions = {
   /** Disparar si ancho > este valor (default 4000). */
@@ -225,8 +253,6 @@ export class ImageProxyService {
       index: number;
       length: number;
       replacement: string;
-      outWidth: number;
-      outHeight: number;
     };
     const replacements: PendingReplace[] = [];
     let sawEmbed = false;
@@ -236,7 +262,7 @@ export class ImageProxyService {
         const pipelineOpts = {
           failOn: 'none' as const,
           limitInputPixels: opts.limitInputPixels,
-          sequentialRead: true,
+          sequentialRead: false,
         };
         const meta = await sharp(item.decoded, pipelineOpts).metadata();
         const width = meta.width ?? 0;
@@ -244,24 +270,12 @@ export class ImageProxyService {
         if (width <= 0 || height <= 0) continue;
 
         sawEmbed = true;
-        const channels = meta.channels && meta.channels > 0 ? meta.channels : 4;
-        const uncompressedMb = (width * height * channels) / (1024 * 1024);
-
         this.logProxy(
           `embedded_png\nwidth=${width}\nheight=${height}`,
         );
 
-        const exceeds =
-          width > opts.triggerMaxWidth ||
-          height > opts.triggerMaxHeight ||
-          uncompressedMb > opts.triggerMaxUncompressedMb;
-
-        // Solo redimensionar si es "gigante". SVG vectorial o embeds chicos: intactos.
-        if (!exceeds) {
-          continue;
-        }
-
-        const resized = await this.resizeEmbeddedPng(
+        // Todos los embeds: normalizar PNG; el SVG solo cambia el data-URI.
+        const resized = await this.normalizeEmbeddedRaster(
           item.decoded,
           width,
           height,
@@ -269,18 +283,57 @@ export class ImageProxyService {
         );
         if (!resized) continue;
 
+        const didResize =
+          resized.width !== width || resized.height !== height;
         this.logProxy(
-          `optimized_png\nnewWidth=${resized.width}\nnewHeight=${resized.height}`,
+          `optimized_png\nnewWidth=${resized.width}\nnewHeight=${resized.height}\nresized=${didResize}`,
         );
 
-        const replacement = `data:image/png;base64,${resized.buffer.toString('base64')}`;
+        // Conservar el mismo esquema data:image/...;base64, — solo el payload.
+        const b64 = resized.buffer.toString('base64');
+        const replacement = `data:image/png;base64,${b64}`;
+
+        // TEMPORAL: confirmar que el Base64 del SVG == buffer optimizado.
+        const roundtrip = Buffer.from(b64, 'base64');
+        const hashBuf = createHash('sha1').update(resized.buffer).digest('hex');
+        const hashB64 = createHash('sha1').update(roundtrip).digest('hex');
+        const base64Matches =
+          hashBuf === hashB64 && roundtrip.length === resized.buffer.length;
+        this.logProxy(
+          `base64_check\nsha1=${hashBuf}\nmatches=${base64Matches}\nbytes=${resized.buffer.length}`,
+        );
+        if (!base64Matches) {
+          this.logger.error(
+            '[IMAGE_PROXY] Base64 insertado NO coincide con el PNG optimizado',
+          );
+        }
+
+        if (IMAGE_PROXY_DEBUG_DUMP) {
+          await this.dumpOptimizedPngDebug({
+            sourceHash: createHash('sha1').update(item.decoded).digest('hex'),
+            original: item.decoded,
+            optimized: resized.buffer,
+            stats: resized.stats,
+            base64Matches,
+            hashBuf,
+          });
+        }
+
+        if (resized.stats.fullyTransparent) {
+          this.logger.error(
+            '[IMAGE_PROXY] PNG optimizado completamente transparente (alpha=0 en todos los píxeles)',
+          );
+        } else if (!resized.stats.hasVisibleContent) {
+          this.logger.warn(
+            '[IMAGE_PROXY] PNG optimizado sin RGB visible (posible logo blanco/negro puro o vacío)',
+          );
+        }
+
         for (const loc of item.indices) {
           replacements.push({
             index: loc.index,
             length: loc.length,
             replacement,
-            outWidth: resized.width,
-            outHeight: resized.height,
           });
         }
       } catch (err) {
@@ -309,37 +362,17 @@ export class ImageProxyService {
       };
     }
 
+    // Único cambio permitido: sustituir el data-URI (Base64). Cero toques a
+    // <svg>, viewBox, preserveAspectRatio, <image> x/y/width/height/transform, xmlns.
     replacements.sort((a, b) => b.index - a.index);
     let svg = originalSvg;
     for (const r of replacements) {
       svg =
         svg.slice(0, r.index) + r.replacement + svg.slice(r.index + r.length);
-      svg = this.patchImageTagDimensionsNear(
-        svg,
-        r.index,
-        r.outWidth,
-        r.outHeight,
-      );
     }
 
-    if (!svg.includes(OPTIMIZED_MARKER)) {
-      // Marca al inicio del documento para no reoptimizar si se reinyecta.
-      if (svg.startsWith('<?xml')) {
-        const endDecl = svg.indexOf('?>');
-        if (endDecl >= 0) {
-          svg =
-            svg.slice(0, endDecl + 2) +
-            `\n${OPTIMIZED_MARKER}\n` +
-            svg.slice(endDecl + 2);
-        } else {
-          svg = `${OPTIMIZED_MARKER}\n${svg}`;
-        }
-      } else {
-        svg = `${OPTIMIZED_MARKER}\n${svg}`;
-      }
-    }
-
-    this.logProxy('svg_rewritten');
+    this.assertSvgGeometryPreserved(originalSvg, svg);
+    this.logProxy('svg_rewritten\nmode=base64_only');
 
     return {
       buffer: Buffer.from(svg, 'utf8'),
@@ -350,39 +383,50 @@ export class ImageProxyService {
   }
 
   /**
-   * Reduce dimensiones reales (no solo peso). Lado más largo = targetMaxSide.
-   * Conserva alpha / transparencia.
+   * Normaliza CUALQUIER raster embebido (todos los logos, no un SKU concreto):
+   * sRGB + alpha + PNG truecolor; redimensiona si el lado largo > targetMaxSide.
    */
-  private async resizeEmbeddedPng(
+  private async normalizeEmbeddedRaster(
     decoded: Buffer,
     width: number,
     height: number,
     opts: ImageProxyOptimizeOptions,
-  ): Promise<{ buffer: Buffer; width: number; height: number } | null> {
-    const longest = Math.max(width, height);
-    if (longest <= opts.targetMaxSide) {
-      return null;
-    }
-
+  ): Promise<{
+    buffer: Buffer;
+    width: number;
+    height: number;
+    stats: PngPixelStats;
+  } | null> {
     const pipelineOpts = {
       failOn: 'none' as const,
       limitInputPixels: opts.limitInputPixels,
-      sequentialRead: true,
+      sequentialRead: false,
     };
 
-    const out = await sharp(decoded, pipelineOpts)
+    const longest = Math.max(width, height);
+    const needsResize = longest > opts.targetMaxSide;
+
+    let pipeline = sharp(decoded, pipelineOpts)
       .rotate()
-      .resize({
+      .toColorspace('srgb')
+      .ensureAlpha();
+
+    if (needsResize) {
+      pipeline = pipeline.resize({
         width: opts.targetMaxSide,
         height: opts.targetMaxSide,
         fit: 'inside',
         withoutEnlargement: true,
-      })
-      .ensureAlpha()
+        kernel: 'lanczos3',
+      });
+    }
+
+    const out = await pipeline
       .png({
         compressionLevel: 9,
         effort: 10,
         adaptiveFiltering: true,
+        palette: false,
       })
       .toBuffer({ resolveWithObject: true });
 
@@ -390,48 +434,212 @@ export class ImageProxyService {
     const newHeight = out.info.height ?? 0;
     if (newWidth <= 0 || newHeight <= 0) return null;
 
-    return { buffer: out.data, width: newWidth, height: newHeight };
+    const stats = await this.analyzePngPixels(out.data);
+    this.logProxy(
+      [
+        'png_pixel_stats',
+        `width=${stats.width}`,
+        `height=${stats.height}`,
+        `opaque=${stats.opaque}`,
+        `semi=${stats.semi}`,
+        `clear=${stats.clear}`,
+        `nonZeroRgb=${stats.nonZeroRgb}`,
+        `avgRGBA=${stats.avgR},${stats.avgG},${stats.avgB},${stats.avgA}`,
+        `luma=${stats.minLuma}..${stats.maxLuma}`,
+        `fullyTransparent=${stats.fullyTransparent}`,
+        `hasVisibleContent=${stats.hasVisibleContent}`,
+      ].join('\n'),
+    );
+
+    if (stats.fullyTransparent) {
+      this.logger.warn(
+        '[IMAGE_PROXY] Retry normalize sin alpha (posible alpha corrupto)',
+      );
+      let retryPipe = sharp(decoded, pipelineOpts)
+        .rotate()
+        .toColorspace('srgb');
+      if (needsResize) {
+        retryPipe = retryPipe.resize({
+          width: opts.targetMaxSide,
+          height: opts.targetMaxSide,
+          fit: 'inside',
+          withoutEnlargement: true,
+          kernel: 'lanczos3',
+        });
+      }
+      const retry = await retryPipe
+        .removeAlpha()
+        .png({ compressionLevel: 9, palette: false })
+        .toBuffer({ resolveWithObject: true });
+      const retryStats = await this.analyzePngPixels(retry.data);
+      this.logProxy(
+        [
+          'png_pixel_stats_retry',
+          `fullyTransparent=${retryStats.fullyTransparent}`,
+          `hasVisibleContent=${retryStats.hasVisibleContent}`,
+          `avgRGBA=${retryStats.avgR},${retryStats.avgG},${retryStats.avgB},${retryStats.avgA}`,
+        ].join('\n'),
+      );
+      return {
+        buffer: retry.data,
+        width: retry.info.width ?? newWidth,
+        height: retry.info.height ?? newHeight,
+        stats: retryStats,
+      };
+    }
+
+    return { buffer: out.data, width: newWidth, height: newHeight, stats };
   }
 
-  private patchImageTagDimensionsNear(
-    svg: string,
-    dataUriIndex: number,
-    width: number,
-    height: number,
-  ): string {
-    const before = svg.slice(0, dataUriIndex);
-    const openIdx = before.lastIndexOf('<image');
-    if (openIdx < 0) return svg;
+  /** Analiza RGBA raw para detectar PNG vacío / totalmente transparente. */
+  private async analyzePngPixels(png: Buffer): Promise<PngPixelStats> {
+    const { data, info } = await sharp(png, { failOn: 'none' })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
 
-    const tagSlice = svg.slice(openIdx, dataUriIndex);
-    if (!/^<image\b/i.test(tagSlice)) return svg;
+    let opaque = 0;
+    let semi = 0;
+    let clear = 0;
+    let nonZeroRgb = 0;
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    let sumA = 0;
+    let minLuma = 255;
+    let maxLuma = 0;
+    const px = info.width * info.height;
 
-    let patched = tagSlice;
-    if (/\bwidth\s*=\s*["'][^"']*["']/i.test(patched)) {
-      patched = patched.replace(
-        /\bwidth\s*=\s*["'][^"']*["']/i,
-        `width="${width}"`,
-      );
-    } else {
-      patched = patched.replace(/<image\b/i, `<image width="${width}"`);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      sumA += a;
+      if (a === 0) clear++;
+      else if (a === 255) opaque++;
+      else semi++;
+      if (a > 0 && (r > 0 || g > 0 || b > 0)) nonZeroRgb++;
+      const luma = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      if (luma < minLuma) minLuma = luma;
+      if (luma > maxLuma) maxLuma = luma;
     }
-    if (/\bheight\s*=\s*["'][^"']*["']/i.test(patched)) {
-      patched = patched.replace(
-        /\bheight\s*=\s*["'][^"']*["']/i,
-        `height="${height}"`,
+
+    const fullyTransparent = px > 0 && clear === px;
+    const hasVisibleContent = nonZeroRgb > 0 && !fullyTransparent;
+
+    return {
+      width: info.width,
+      height: info.height,
+      channels: info.channels,
+      opaque,
+      semi,
+      clear,
+      nonZeroRgb,
+      avgR: Math.round(sumR / px),
+      avgG: Math.round(sumG / px),
+      avgB: Math.round(sumB / px),
+      avgA: Math.round(sumA / px),
+      minLuma,
+      maxLuma,
+      fullyTransparent,
+      hasVisibleContent,
+    };
+  }
+
+  /** TEMPORAL: guarda original + optimizado + JSON de stats en tmp/. */
+  private async dumpOptimizedPngDebug(params: {
+    sourceHash: string;
+    original: Buffer;
+    optimized: Buffer;
+    stats: PngPixelStats;
+    base64Matches: boolean;
+    hashBuf: string;
+  }): Promise<void> {
+    try {
+      mkdirSync(IMAGE_PROXY_DEBUG_DIR, { recursive: true });
+      const id = params.sourceHash.slice(0, 12);
+      const origPath = join(IMAGE_PROXY_DEBUG_DIR, `${id}-original.png`);
+      const optPath = join(IMAGE_PROXY_DEBUG_DIR, `${id}-optimized.png`);
+      const metaPath = join(IMAGE_PROXY_DEBUG_DIR, `${id}-stats.json`);
+
+      writeFileSync(optPath, params.optimized);
+      // Original puede ser enorme; guardar solo si cabe ~8MB para no llenar disco.
+      if (params.original.length <= 8 * 1024 * 1024) {
+        writeFileSync(origPath, params.original);
+      }
+      writeFileSync(
+        metaPath,
+        JSON.stringify(
+          {
+            savedAt: new Date().toISOString(),
+            sourceHash: params.sourceHash,
+            optimizedSha1: params.hashBuf,
+            base64Matches: params.base64Matches,
+            originalBytes: params.original.length,
+            optimizedBytes: params.optimized.length,
+            stats: params.stats,
+            files: {
+              optimized: optPath,
+              original:
+                params.original.length <= 8 * 1024 * 1024 ? origPath : null,
+            },
+          },
+          null,
+          2,
+        ),
+        'utf8',
       );
-    } else {
-      patched = patched.replace(/<image\b/i, `<image height="${height}"`);
+
+      this.logProxy(
+        `debug_dump\noptimized=${optPath}\nfullyTransparent=${params.stats.fullyTransparent}\nhasVisibleContent=${params.stats.hasVisibleContent}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[IMAGE_PROXY] debug_dump_failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * Comprueba que fuera de los data-URI el SVG es idéntico (atributos geométricos
+   * y namespaces intactos).
+   */
+  private assertSvgGeometryPreserved(before: string, after: string): void {
+    const stripDataUris = (s: string) =>
+      s.replace(
+        /data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=\r\n\t ]+/gi,
+        'data:image/PLACEHOLDER;base64,',
+      );
+
+    const a = stripDataUris(before);
+    const b = stripDataUris(after);
+    if (a === b) {
+      this.logProxy('svg_geometry\npreserved=true');
+      return;
     }
 
-    return svg.slice(0, openIdx) + patched + svg.slice(dataUriIndex);
+    const pick = (svg: string) => {
+      const root = svg.match(/<svg\b[^>]*>/i)?.[0] ?? '';
+      const image = svg.match(/<image\b[^>]*>/i)?.[0] ?? '';
+      return { root, image };
+    };
+    const pb = pick(before);
+    const pa = pick(after);
+    this.logger.error(
+      `[IMAGE_PROXY] svg_geometry altered (solo debería cambiar Base64)\n` +
+        `svgBefore=${pb.root}\nsvgAfter=${pa.root}\n` +
+        `imageBefore=${pb.image.slice(0, 240)}\nimageAfter=${pa.image.slice(0, 240)}`,
+    );
   }
 
   private async optimizeStandaloneRaster(
     body: Buffer,
     contentType: string,
   ): Promise<OptimizeResult> {
-    // Rasters sueltos: solo redimensionar si superan el mismo umbral "gigante".
     const opts = this.getOptions();
     try {
       const meta = await sharp(body, {
@@ -440,14 +648,7 @@ export class ImageProxyService {
       }).metadata();
       const width = meta.width ?? 0;
       const height = meta.height ?? 0;
-      const channels = meta.channels && meta.channels > 0 ? meta.channels : 4;
-      const uncompressedMb = (width * height * channels) / (1024 * 1024);
-      const exceeds =
-        width > opts.triggerMaxWidth ||
-        height > opts.triggerMaxHeight ||
-        uncompressedMb > opts.triggerMaxUncompressedMb;
-
-      if (!exceeds) {
+      if (width <= 0 || height <= 0) {
         return {
           buffer: body,
           contentType,
@@ -456,7 +657,12 @@ export class ImageProxyService {
         };
       }
 
-      const resized = await this.resizeEmbeddedPng(body, width, height, opts);
+      const resized = await this.normalizeEmbeddedRaster(
+        body,
+        width,
+        height,
+        opts,
+      );
       if (!resized) {
         return {
           buffer: body,
@@ -469,6 +675,19 @@ export class ImageProxyService {
       this.logProxy(
         `optimized_png\nnewWidth=${resized.width}\nnewHeight=${resized.height}`,
       );
+
+      if (IMAGE_PROXY_DEBUG_DUMP) {
+        const hashBuf = createHash('sha1').update(resized.buffer).digest('hex');
+        await this.dumpOptimizedPngDebug({
+          sourceHash: createHash('sha1').update(body).digest('hex'),
+          original: body,
+          optimized: resized.buffer,
+          stats: resized.stats,
+          base64Matches: true,
+          hashBuf,
+        });
+      }
+
       return {
         buffer: resized.buffer,
         contentType: 'image/png',
