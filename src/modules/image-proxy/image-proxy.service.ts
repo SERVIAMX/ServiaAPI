@@ -3,26 +3,18 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 
-/** data:image/...;base64,... (png/jpeg/jpg/webp), con o sin whitespace en el payload. */
+/** data:image/...;base64,... (png/jpeg/jpg/webp). */
 const EMBEDDED_DATA_URI_RE =
   /data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\r\n\t ]+)/gi;
 
 export type ImageProxyOptimizeOptions = {
-  /** Disparar si ancho > este valor (default = targetMaxWidth). */
   triggerMaxWidth: number;
-  /** Disparar si alto > este valor (default = targetMaxHeight). */
   triggerMaxHeight: number;
-  /** Disparar si memoria descomprimida estimada > MB. */
   triggerMaxUncompressedMb: number;
-  /** Disparar si el Base64/bytes comprimidos > KB. */
   triggerMaxEncodedKb: number;
-  /** Ancho máximo de salida (default 512). Sin ampliar. */
   targetMaxWidth: number;
-  /** Alto máximo de salida (default 512). Sin ampliar. */
   targetMaxHeight: number;
-  /** Calidad PNG palette 1–100 (default 80). */
   pngQuality: number;
-  /** Límite de píxeles de entrada Sharp (anti DoS). */
   limitInputPixels: number;
 };
 
@@ -37,8 +29,6 @@ type CacheEntry = { buffer: Buffer; contentType: string; optimized: boolean };
 @Injectable()
 export class ImageProxyService {
   private readonly logger = new Logger(ImageProxyService.name);
-
-  /** Cache en memoria por hash del cuerpo original (logos repetidos). */
   private readonly cache = new Map<string, CacheEntry>();
   private readonly cacheMax = 64;
 
@@ -57,7 +47,6 @@ export class ImageProxyService {
       targetMaxWidth,
     );
     return {
-      // Por defecto: cualquier imagen más grande que el target se optimiza.
       triggerMaxWidth: this.numEnv(
         'IMAGE_PROXY_TRIGGER_MAX_WIDTH',
         targetMaxWidth,
@@ -107,7 +96,6 @@ export class ImageProxyService {
     ) {
       return true;
     }
-    // Magic bytes
     if (body.length >= 8) {
       if (
         body[0] === 0x89 &&
@@ -130,9 +118,6 @@ export class ImageProxyService {
     return false;
   }
 
-  /**
-   * Punto de entrada: SVG embebidos y rasters sueltos.
-   */
   async optimizeResponse(
     body: Buffer,
     contentType: string,
@@ -154,7 +139,6 @@ export class ImageProxyService {
     return result;
   }
 
-  /** @deprecated usar optimizeResponse */
   async optimizeSvgIfNeeded(
     body: Buffer,
     contentType: string,
@@ -186,10 +170,13 @@ export class ImageProxyService {
       };
     }
 
-    // Deduplicar Base64 idénticos: una sola pasada Sharp.
     const unique = new Map<
       string,
-      { mime: string; decoded: Buffer; indices: Array<{ index: number; length: number }> }
+      {
+        mime: string;
+        decoded: Buffer;
+        indices: Array<{ index: number; length: number }>;
+      }
     >();
 
     for (const match of matches) {
@@ -221,22 +208,42 @@ export class ImageProxyService {
       }
     }
 
-    type PendingReplace = { index: number; length: number; replacement: string };
+    type PendingReplace = {
+      index: number;
+      length: number;
+      replacement: string;
+      outWidth: number;
+      outHeight: number;
+    };
     const replacements: PendingReplace[] = [];
 
     await Promise.all(
       [...unique.values()].map(async (item) => {
         try {
-          const out = await this.compressRaster(item.decoded, item.mime, opts, {
-            forceIfSmaller: true,
-          });
-          if (!out) return;
-          const replacement = `data:image/png;base64,${out.toString('base64')}`;
+          const compressed = await this.compressRaster(
+            item.decoded,
+            item.mime,
+            opts,
+            { forceIfSmaller: true },
+          );
+          if (!compressed) return;
+
+          const outMeta = await sharp(compressed, {
+            failOn: 'none',
+            limitInputPixels: opts.limitInputPixels,
+          }).metadata();
+          const outWidth = outMeta.width ?? 0;
+          const outHeight = outMeta.height ?? 0;
+          if (outWidth <= 0 || outHeight <= 0) return;
+
+          const replacement = `data:image/png;base64,${compressed.toString('base64')}`;
           for (const loc of item.indices) {
             replacements.push({
               index: loc.index,
               length: loc.length,
               replacement,
+              outWidth,
+              outHeight,
             });
           }
         } catch (err) {
@@ -260,28 +267,67 @@ export class ImageProxyService {
     for (const r of replacements) {
       svg =
         svg.slice(0, r.index) + r.replacement + svg.slice(r.index + r.length);
+      // Actualiza width/height del <image> que contiene este data URI
+      // (Flutter también mira esos atributos; COOLMF venía con 6739x3408).
+      svg = this.patchImageTagDimensionsNear(
+        svg,
+        r.index,
+        r.outWidth,
+        r.outHeight,
+      );
     }
 
     const outBuf = Buffer.from(svg, 'utf8');
-    const saved = body.length - outBuf.length;
     this.logger.log(
-      `SVG optimizado: embeds=${replacements.length} ${body.length}→${outBuf.length} B (${saved > 0 ? '-' : '+'}${Math.abs(saved)} B)`,
+      `SVG optimizado: embeds=${replacements.length} ${body.length}→${outBuf.length} B ` +
+        `png=${replacements[0]?.outWidth}x${replacements[0]?.outHeight}`,
     );
-
-    // Si por alguna razón quedó más grande, devolver original.
-    if (outBuf.length >= body.length * 0.98 && outBuf.length > body.length) {
-      return {
-        buffer: body,
-        contentType: 'image/svg+xml',
-        optimized: false,
-      };
-    }
 
     return {
       buffer: outBuf,
       contentType: 'image/svg+xml',
       optimized: true,
     };
+  }
+
+  /**
+   * Busca el `<image ...>` inmediatamente antes de `dataUriIndex` y
+   * reescribe atributos width/height a las dimensiones reales del PNG.
+   */
+  private patchImageTagDimensionsNear(
+    svg: string,
+    dataUriIndex: number,
+    width: number,
+    height: number,
+  ): string {
+    const before = svg.slice(0, dataUriIndex);
+    const openIdx = before.lastIndexOf('<image');
+    if (openIdx < 0) return svg;
+
+    // Fin del tag de apertura (puede ser `>` o `/>` más adelante, pero el data URI está dentro de un attr).
+    // Tomamos desde <image hasta el data URI inclusive del atributo href.
+    const tagSlice = svg.slice(openIdx, dataUriIndex);
+    if (!/^<image\b/i.test(tagSlice)) return svg;
+
+    let patched = tagSlice;
+    if (/\bwidth\s*=\s*["'][^"']*["']/i.test(patched)) {
+      patched = patched.replace(
+        /\bwidth\s*=\s*["'][^"']*["']/i,
+        `width="${width}"`,
+      );
+    } else {
+      patched = patched.replace(/<image\b/i, `<image width="${width}"`);
+    }
+    if (/\bheight\s*=\s*["'][^"']*["']/i.test(patched)) {
+      patched = patched.replace(
+        /\bheight\s*=\s*["'][^"']*["']/i,
+        `height="${height}"`,
+      );
+    } else {
+      patched = patched.replace(/<image\b/i, `<image height="${height}"`);
+    }
+
+    return svg.slice(0, openIdx) + patched + svg.slice(dataUriIndex);
   }
 
   private async optimizeStandaloneRaster(
@@ -320,9 +366,6 @@ export class ImageProxyService {
     }
   }
 
-  /**
-   * Redimensiona + PNG palette agresivo si supera umbrales o si el resultado es más liviano.
-   */
   private async compressRaster(
     decoded: Buffer,
     mimeSubtype: string,
@@ -356,15 +399,12 @@ export class ImageProxyService {
       return null;
     }
 
-    // Si no necesita resize ni supera umbral, igual intentamos recomprimir solo si forceIfSmaller.
-    const shouldProcess = needsResize || exceedsTrigger || flags.forceIfSmaller;
-    if (!shouldProcess) return null;
-
-    this.logger.debug?.(
-      `compress ${mimeSubtype} ${width}x${height} enc=${encodedKb.toFixed(0)}KB raw≈${uncompressedMb.toFixed(1)}MB`,
+    this.logger.log(
+      `compress ${mimeSubtype} ${width}x${height} → ≤${opts.targetMaxWidth}x${opts.targetMaxHeight} ` +
+        `(enc=${encodedKb.toFixed(0)}KB raw≈${uncompressedMb.toFixed(1)}MB)`,
     );
 
-    let pipeline = sharp(decoded, pipelineOpts).rotate(); // respeta EXIF
+    let pipeline = sharp(decoded, pipelineOpts).rotate();
 
     if (needsResize || exceedsTrigger) {
       pipeline = pipeline.resize({
@@ -375,7 +415,6 @@ export class ImageProxyService {
       });
     }
 
-    // PNG palette: ideal para logos (pocos colores, con alpha).
     const out = await pipeline
       .png({
         compressionLevel: 9,
@@ -386,11 +425,9 @@ export class ImageProxyService {
       })
       .toBuffer();
 
-    // Resize por umbral: siempre devolver (Flutter necesita dimensiones acotadas).
     if (needsResize || exceedsTrigger) {
       return out;
     }
-    // Solo recompresión: aceptar si baja ≥5%.
     if (out.length < decoded.length * 0.95) return out;
     return null;
   }
