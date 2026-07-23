@@ -3,18 +3,25 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 
-/** data:image/...;base64,... (png/jpeg/jpg/webp). */
+/**
+ * PNG/JPEG/WebP embebidos en SVG:
+ * <image xlink:href="data:image/png;base64,...">
+ * o href="data:image/..."
+ */
 const EMBEDDED_DATA_URI_RE =
   /data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\r\n\t ]+)/gi;
 
+const OPTIMIZED_MARKER = '<!-- servia-image-proxy-optimized -->';
+
 export type ImageProxyOptimizeOptions = {
+  /** Disparar si ancho > este valor (default 4000). */
   triggerMaxWidth: number;
+  /** Disparar si alto > este valor (default 4000). */
   triggerMaxHeight: number;
+  /** Disparar si memoria descomprimida estimada > MB (default 20). */
   triggerMaxUncompressedMb: number;
-  triggerMaxEncodedKb: number;
-  targetMaxWidth: number;
-  targetMaxHeight: number;
-  pngQuality: number;
+  /** Lado más largo máximo del PNG de salida (default 512). */
+  targetMaxSide: number;
   limitInputPixels: number;
 };
 
@@ -22,15 +29,16 @@ type OptimizeResult = {
   buffer: Buffer;
   contentType: string;
   optimized: boolean;
+  kind: 'vector_svg' | 'embedded_png' | 'raster' | 'other';
 };
 
-type CacheEntry = { buffer: Buffer; contentType: string; optimized: boolean };
+type CacheEntry = OptimizeResult;
 
 @Injectable()
 export class ImageProxyService {
   private readonly logger = new Logger(ImageProxyService.name);
   private readonly cache = new Map<string, CacheEntry>();
-  private readonly cacheMax = 64;
+  private readonly cacheMax = 128;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -41,36 +49,23 @@ export class ImageProxyService {
   }
 
   getOptions(): ImageProxyOptimizeOptions {
-    const targetMaxWidth = this.numEnv('IMAGE_PROXY_TARGET_MAX_WIDTH', 512);
-    const targetMaxHeight = this.numEnv(
-      'IMAGE_PROXY_TARGET_MAX_HEIGHT',
-      targetMaxWidth,
-    );
     return {
-      triggerMaxWidth: this.numEnv(
-        'IMAGE_PROXY_TRIGGER_MAX_WIDTH',
-        targetMaxWidth,
-      ),
-      triggerMaxHeight: this.numEnv(
-        'IMAGE_PROXY_TRIGGER_MAX_HEIGHT',
-        targetMaxHeight,
-      ),
+      triggerMaxWidth: this.numEnv('IMAGE_PROXY_TRIGGER_MAX_WIDTH', 4000),
+      triggerMaxHeight: this.numEnv('IMAGE_PROXY_TRIGGER_MAX_HEIGHT', 4000),
       triggerMaxUncompressedMb: this.numEnv(
         'IMAGE_PROXY_TRIGGER_MAX_UNCOMPRESSED_MB',
-        5,
+        20,
       ),
-      triggerMaxEncodedKb: this.numEnv('IMAGE_PROXY_TRIGGER_MAX_ENCODED_KB', 80),
-      targetMaxWidth,
-      targetMaxHeight,
-      pngQuality: Math.min(
-        100,
-        Math.max(1, this.numEnv('IMAGE_PROXY_PNG_QUALITY', 80)),
-      ),
+      targetMaxSide: this.numEnv('IMAGE_PROXY_TARGET_MAX_SIDE', 512),
       limitInputPixels: this.numEnv(
         'IMAGE_PROXY_LIMIT_INPUT_PIXELS',
-        50_000_000,
+        268_435_456, // ~16384²
       ),
     };
+  }
+
+  private logProxy(message: string): void {
+    this.logger.log(`[IMAGE_PROXY]\n${message}`);
   }
 
   isSvg(contentType: string, body: Buffer): boolean {
@@ -97,21 +92,11 @@ export class ImageProxyService {
       return true;
     }
     if (body.length >= 8) {
-      if (
-        body[0] === 0x89 &&
-        body[1] === 0x50 &&
-        body[2] === 0x4e &&
-        body[3] === 0x47
-      ) {
+      if (body[0] === 0x89 && body[1] === 0x50 && body[2] === 0x4e && body[3] === 0x47) {
         return true;
       }
       if (body[0] === 0xff && body[1] === 0xd8) return true;
-      if (
-        body[0] === 0x52 &&
-        body[1] === 0x49 &&
-        body[2] === 0x46 &&
-        body[3] === 0x46
-      ) {
+      if (body[0] === 0x52 && body[1] === 0x49 && body[2] === 0x46 && body[3] === 0x46) {
         return true;
       }
     }
@@ -124,7 +109,9 @@ export class ImageProxyService {
   ): Promise<OptimizeResult> {
     const key = createHash('sha1').update(body).digest('hex');
     const hit = this.cache.get(key);
-    if (hit) return { ...hit, buffer: Buffer.from(hit.buffer) };
+    if (hit) {
+      return { ...hit, buffer: Buffer.from(hit.buffer) };
+    }
 
     let result: OptimizeResult;
     if (this.isSvg(contentType, body)) {
@@ -132,10 +119,22 @@ export class ImageProxyService {
     } else if (this.isRaster(contentType, body)) {
       result = await this.optimizeStandaloneRaster(body, contentType);
     } else {
-      result = { buffer: body, contentType, optimized: false };
+      result = {
+        buffer: body,
+        contentType,
+        optimized: false,
+        kind: 'other',
+      };
     }
 
     this.putCache(key, result);
+    // También cachear el resultado optimizado para no reprocesar si alguien
+    // vuelve a pedir el mismo SVG ya reescrito (mismo hash de salida).
+    if (result.optimized) {
+      const outKey = createHash('sha1').update(result.buffer).digest('hex');
+      this.putCache(outKey, { ...result, optimized: false, kind: result.kind });
+    }
+
     return result;
   }
 
@@ -152,24 +151,38 @@ export class ImageProxyService {
       if (first) this.cache.delete(first);
     }
     this.cache.set(key, {
+      ...entry,
       buffer: Buffer.from(entry.buffer),
-      contentType: entry.contentType,
-      optimized: entry.optimized,
     });
   }
 
   private async optimizeSvg(body: Buffer): Promise<OptimizeResult> {
     const opts = this.getOptions();
     const originalSvg = body.toString('utf8');
-    const matches = [...originalSvg.matchAll(EMBEDDED_DATA_URI_RE)];
-    if (matches.length === 0) {
+
+    // Ya pasó por el proxy: no volver a tocar.
+    if (originalSvg.includes(OPTIMIZED_MARKER)) {
+      this.logProxy('embedded_png\nalready_optimized=true');
       return {
         buffer: body,
         contentType: 'image/svg+xml',
         optimized: false,
+        kind: 'embedded_png',
       };
     }
 
+    const matches = [...originalSvg.matchAll(EMBEDDED_DATA_URI_RE)];
+    if (matches.length === 0) {
+      this.logProxy('vector_svg');
+      return {
+        buffer: body,
+        contentType: 'image/svg+xml',
+        optimized: false,
+        kind: 'vector_svg',
+      };
+    }
+
+    // Deduplicar Base64 idénticos.
     const unique = new Map<
       string,
       {
@@ -216,49 +229,83 @@ export class ImageProxyService {
       outHeight: number;
     };
     const replacements: PendingReplace[] = [];
+    let sawEmbed = false;
 
-    await Promise.all(
-      [...unique.values()].map(async (item) => {
-        try {
-          const compressed = await this.compressRaster(
-            item.decoded,
-            item.mime,
-            opts,
-            { forceIfSmaller: true },
-          );
-          if (!compressed) return;
+    for (const item of unique.values()) {
+      try {
+        const pipelineOpts = {
+          failOn: 'none' as const,
+          limitInputPixels: opts.limitInputPixels,
+          sequentialRead: true,
+        };
+        const meta = await sharp(item.decoded, pipelineOpts).metadata();
+        const width = meta.width ?? 0;
+        const height = meta.height ?? 0;
+        if (width <= 0 || height <= 0) continue;
 
-          const outMeta = await sharp(compressed, {
-            failOn: 'none',
-            limitInputPixels: opts.limitInputPixels,
-          }).metadata();
-          const outWidth = outMeta.width ?? 0;
-          const outHeight = outMeta.height ?? 0;
-          if (outWidth <= 0 || outHeight <= 0) return;
+        sawEmbed = true;
+        const channels = meta.channels && meta.channels > 0 ? meta.channels : 4;
+        const uncompressedMb = (width * height * channels) / (1024 * 1024);
 
-          const replacement = `data:image/png;base64,${compressed.toString('base64')}`;
-          for (const loc of item.indices) {
-            replacements.push({
-              index: loc.index,
-              length: loc.length,
-              replacement,
-              outWidth,
-              outHeight,
-            });
-          }
-        } catch (err) {
-          this.logger.warn(
-            `SVG embed (${item.mime}): ${err instanceof Error ? err.message : err}`,
-          );
+        this.logProxy(
+          `embedded_png\nwidth=${width}\nheight=${height}`,
+        );
+
+        const exceeds =
+          width > opts.triggerMaxWidth ||
+          height > opts.triggerMaxHeight ||
+          uncompressedMb > opts.triggerMaxUncompressedMb;
+
+        // Solo redimensionar si es "gigante". SVG vectorial o embeds chicos: intactos.
+        if (!exceeds) {
+          continue;
         }
-      }),
-    );
+
+        const resized = await this.resizeEmbeddedPng(
+          item.decoded,
+          width,
+          height,
+          opts,
+        );
+        if (!resized) continue;
+
+        this.logProxy(
+          `optimized_png\nnewWidth=${resized.width}\nnewHeight=${resized.height}`,
+        );
+
+        const replacement = `data:image/png;base64,${resized.buffer.toString('base64')}`;
+        for (const loc of item.indices) {
+          replacements.push({
+            index: loc.index,
+            length: loc.length,
+            replacement,
+            outWidth: resized.width,
+            outHeight: resized.height,
+          });
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[IMAGE_PROXY] embed_error mime=${item.mime}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
 
     if (replacements.length === 0) {
+      if (sawEmbed) {
+        this.logProxy('embedded_png\nrewrite=skipped');
+        return {
+          buffer: body,
+          contentType: 'image/svg+xml',
+          optimized: false,
+          kind: 'embedded_png',
+        };
+      }
+      this.logProxy('vector_svg');
       return {
         buffer: body,
         contentType: 'image/svg+xml',
         optimized: false,
+        kind: 'vector_svg',
       };
     }
 
@@ -267,8 +314,6 @@ export class ImageProxyService {
     for (const r of replacements) {
       svg =
         svg.slice(0, r.index) + r.replacement + svg.slice(r.index + r.length);
-      // Actualiza width/height del <image> que contiene este data URI
-      // (Flutter también mira esos atributos; COOLMF venía con 6739x3408).
       svg = this.patchImageTagDimensionsNear(
         svg,
         r.index,
@@ -277,23 +322,77 @@ export class ImageProxyService {
       );
     }
 
-    const outBuf = Buffer.from(svg, 'utf8');
-    this.logger.log(
-      `SVG optimizado: embeds=${replacements.length} ${body.length}→${outBuf.length} B ` +
-        `png=${replacements[0]?.outWidth}x${replacements[0]?.outHeight}`,
-    );
+    if (!svg.includes(OPTIMIZED_MARKER)) {
+      // Marca al inicio del documento para no reoptimizar si se reinyecta.
+      if (svg.startsWith('<?xml')) {
+        const endDecl = svg.indexOf('?>');
+        if (endDecl >= 0) {
+          svg =
+            svg.slice(0, endDecl + 2) +
+            `\n${OPTIMIZED_MARKER}\n` +
+            svg.slice(endDecl + 2);
+        } else {
+          svg = `${OPTIMIZED_MARKER}\n${svg}`;
+        }
+      } else {
+        svg = `${OPTIMIZED_MARKER}\n${svg}`;
+      }
+    }
+
+    this.logProxy('svg_rewritten');
 
     return {
-      buffer: outBuf,
+      buffer: Buffer.from(svg, 'utf8'),
       contentType: 'image/svg+xml',
       optimized: true,
+      kind: 'embedded_png',
     };
   }
 
   /**
-   * Busca el `<image ...>` inmediatamente antes de `dataUriIndex` y
-   * reescribe atributos width/height a las dimensiones reales del PNG.
+   * Reduce dimensiones reales (no solo peso). Lado más largo = targetMaxSide.
+   * Conserva alpha / transparencia.
    */
+  private async resizeEmbeddedPng(
+    decoded: Buffer,
+    width: number,
+    height: number,
+    opts: ImageProxyOptimizeOptions,
+  ): Promise<{ buffer: Buffer; width: number; height: number } | null> {
+    const longest = Math.max(width, height);
+    if (longest <= opts.targetMaxSide) {
+      return null;
+    }
+
+    const pipelineOpts = {
+      failOn: 'none' as const,
+      limitInputPixels: opts.limitInputPixels,
+      sequentialRead: true,
+    };
+
+    const out = await sharp(decoded, pipelineOpts)
+      .rotate()
+      .resize({
+        width: opts.targetMaxSide,
+        height: opts.targetMaxSide,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .ensureAlpha()
+      .png({
+        compressionLevel: 9,
+        effort: 10,
+        adaptiveFiltering: true,
+      })
+      .toBuffer({ resolveWithObject: true });
+
+    const newWidth = out.info.width ?? 0;
+    const newHeight = out.info.height ?? 0;
+    if (newWidth <= 0 || newHeight <= 0) return null;
+
+    return { buffer: out.data, width: newWidth, height: newHeight };
+  }
+
   private patchImageTagDimensionsNear(
     svg: string,
     dataUriIndex: number,
@@ -304,8 +403,6 @@ export class ImageProxyService {
     const openIdx = before.lastIndexOf('<image');
     if (openIdx < 0) return svg;
 
-    // Fin del tag de apertura (puede ser `>` o `/>` más adelante, pero el data URI está dentro de un attr).
-    // Tomamos desde <image hasta el data URI inclusive del atributo href.
     const tagSlice = svg.slice(openIdx, dataUriIndex);
     if (!/^<image\b/i.test(tagSlice)) return svg;
 
@@ -334,101 +431,60 @@ export class ImageProxyService {
     body: Buffer,
     contentType: string,
   ): Promise<OptimizeResult> {
+    // Rasters sueltos: solo redimensionar si superan el mismo umbral "gigante".
     const opts = this.getOptions();
-    const mime = contentType.includes('png')
-      ? 'png'
-      : contentType.includes('webp')
-        ? 'webp'
-        : contentType.includes('gif')
-          ? 'gif'
-          : 'jpeg';
-
     try {
-      const out = await this.compressRaster(body, mime, opts, {
-        forceIfSmaller: true,
-      });
-      if (!out || out.length >= body.length) {
-        return { buffer: body, contentType, optimized: false };
+      const meta = await sharp(body, {
+        failOn: 'none',
+        limitInputPixels: opts.limitInputPixels,
+      }).metadata();
+      const width = meta.width ?? 0;
+      const height = meta.height ?? 0;
+      const channels = meta.channels && meta.channels > 0 ? meta.channels : 4;
+      const uncompressedMb = (width * height * channels) / (1024 * 1024);
+      const exceeds =
+        width > opts.triggerMaxWidth ||
+        height > opts.triggerMaxHeight ||
+        uncompressedMb > opts.triggerMaxUncompressedMb;
+
+      if (!exceeds) {
+        return {
+          buffer: body,
+          contentType,
+          optimized: false,
+          kind: 'raster',
+        };
       }
-      this.logger.log(
-        `Raster optimizado: ${mime} ${body.length}→${out.length} B`,
+
+      const resized = await this.resizeEmbeddedPng(body, width, height, opts);
+      if (!resized) {
+        return {
+          buffer: body,
+          contentType,
+          optimized: false,
+          kind: 'raster',
+        };
+      }
+
+      this.logProxy(
+        `optimized_png\nnewWidth=${resized.width}\nnewHeight=${resized.height}`,
       );
       return {
-        buffer: out,
+        buffer: resized.buffer,
         contentType: 'image/png',
         optimized: true,
+        kind: 'raster',
       };
     } catch (err) {
       this.logger.warn(
-        `Raster no optimizado: ${err instanceof Error ? err.message : err}`,
+        `[IMAGE_PROXY] raster_error: ${err instanceof Error ? err.message : err}`,
       );
-      return { buffer: body, contentType, optimized: false };
+      return {
+        buffer: body,
+        contentType,
+        optimized: false,
+        kind: 'raster',
+      };
     }
-  }
-
-  private async compressRaster(
-    decoded: Buffer,
-    mimeSubtype: string,
-    opts: ImageProxyOptimizeOptions,
-    flags: { forceIfSmaller: boolean },
-  ): Promise<Buffer | null> {
-    const pipelineOpts = {
-      failOn: 'none' as const,
-      limitInputPixels: opts.limitInputPixels,
-      sequentialRead: true,
-    };
-
-    const meta = await sharp(decoded, pipelineOpts).metadata();
-    const width = meta.width ?? 0;
-    const height = meta.height ?? 0;
-    if (width <= 0 || height <= 0) return null;
-
-    const channels = meta.channels && meta.channels > 0 ? meta.channels : 4;
-    const uncompressedMb = (width * height * channels) / (1024 * 1024);
-    const encodedKb = decoded.length / 1024;
-
-    const needsResize =
-      width > opts.targetMaxWidth || height > opts.targetMaxHeight;
-    const exceedsTrigger =
-      width > opts.triggerMaxWidth ||
-      height > opts.triggerMaxHeight ||
-      uncompressedMb > opts.triggerMaxUncompressedMb ||
-      encodedKb > opts.triggerMaxEncodedKb;
-
-    if (!needsResize && !exceedsTrigger && !flags.forceIfSmaller) {
-      return null;
-    }
-
-    this.logger.log(
-      `compress ${mimeSubtype} ${width}x${height} → ≤${opts.targetMaxWidth}x${opts.targetMaxHeight} ` +
-        `(enc=${encodedKb.toFixed(0)}KB raw≈${uncompressedMb.toFixed(1)}MB)`,
-    );
-
-    let pipeline = sharp(decoded, pipelineOpts).rotate();
-
-    if (needsResize || exceedsTrigger) {
-      pipeline = pipeline.resize({
-        width: opts.targetMaxWidth,
-        height: opts.targetMaxHeight,
-        fit: 'inside',
-        withoutEnlargement: true,
-      });
-    }
-
-    const out = await pipeline
-      .png({
-        compressionLevel: 9,
-        effort: 10,
-        palette: true,
-        quality: opts.pngQuality,
-        dither: 1.0,
-      })
-      .toBuffer();
-
-    if (needsResize || exceedsTrigger) {
-      return out;
-    }
-    if (out.length < decoded.length * 0.95) return out;
-    return null;
   }
 }

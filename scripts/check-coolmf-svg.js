@@ -48,13 +48,10 @@ async function main() {
   const fakeConfig = {
     get: (key) => {
       const map = {
-        IMAGE_PROXY_TARGET_MAX_WIDTH: 512,
-        IMAGE_PROXY_TARGET_MAX_HEIGHT: 512,
-        IMAGE_PROXY_TRIGGER_MAX_WIDTH: 512,
-        IMAGE_PROXY_TRIGGER_MAX_HEIGHT: 512,
-        IMAGE_PROXY_TRIGGER_MAX_UNCOMPRESSED_MB: 5,
-        IMAGE_PROXY_TRIGGER_MAX_ENCODED_KB: 80,
-        IMAGE_PROXY_PNG_QUALITY: 80,
+        IMAGE_PROXY_TRIGGER_MAX_WIDTH: 4000,
+        IMAGE_PROXY_TRIGGER_MAX_HEIGHT: 4000,
+        IMAGE_PROXY_TRIGGER_MAX_UNCOMPRESSED_MB: 20,
+        IMAGE_PROXY_TARGET_MAX_SIDE: 512,
       };
       return map[key];
     },

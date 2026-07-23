@@ -31,18 +31,18 @@ export class ImageProxyController {
   @Public()
   @SkipResponseInterceptor()
   @ApiOperation({
-    summary: 'Proxy de imágenes (CORS + optimización agresiva)',
+    summary: 'Proxy de logos (CORS + resize PNG embebido en SVG)',
     description: [
-      'Descarga desde `*.movivendor.com` y sirve con CORS.',
-      'SVG: detecta `data:image/png|jpeg|webp;base64`, deduplica embeds, redimensiona a máx. 512×512 (sin ampliar),',
-      'recomprime a PNG palette y sustituye el Base64.',
-      'Rasters sueltos (png/jpeg/webp): mismo pipeline.',
-      'Umbrales por defecto: target 512px, encoded > 80KB o memoria > 5MB también disparan optimización.',
-      'Cache en memoria de resultados. Header `X-Image-Proxy-Optimized: 0|1`.',
+      'Descarga desde `*.movivendor.com`.',
+      'Si el SVG es vectorial (`path`/`g`/…), se devuelve igual.',
+      'Si contiene `<image xlink:href="data:image/png;base64,...">` y el PNG supera',
+      'ancho>4000, alto>4000 o ~20MB descomprimidos, redimensiona el PNG (lado largo ≤512),',
+      'reemplaza el Base64, actualiza width/height del `<image>` y responde `image/svg+xml`.',
+      'No rasteriza SVG vectoriales. Mismo endpoint/contrato público.',
     ].join(' '),
   })
-  @ApiProduces('image/*', 'image/svg+xml', 'application/octet-stream')
-  @ApiOkResponse({ description: 'Imagen (SVG/raster) posiblemente optimizada' })
+  @ApiProduces('image/svg+xml', 'image/*', 'application/octet-stream')
+  @ApiOkResponse({ description: 'SVG (posiblemente con PNG embebido optimizado) o raster' })
   async proxy(@Query() query: ImageProxyQueryDto, @Res() res: Response) {
     let target: URL;
     try {
@@ -66,10 +66,10 @@ export class ImageProxyController {
       upstream = await fetch(target.toString(), {
         method: 'GET',
         redirect: 'follow',
-        signal: AbortSignal.timeout(25_000),
+        signal: AbortSignal.timeout(30_000),
         headers: {
           Accept: 'image/svg+xml,image/*,*/*;q=0.8',
-          'User-Agent': 'ServiaAPI-ImageProxy/1.1',
+          'User-Agent': 'ServiaAPI-ImageProxy/2.0',
         },
       });
     } catch (e) {
@@ -89,23 +89,26 @@ export class ImageProxyController {
       'application/octet-stream';
     const raw = Buffer.from(await upstream.arrayBuffer());
 
-    const { buffer, contentType, optimized } =
+    const { buffer, contentType, optimized, kind } =
       await this.imageProxyService.optimizeResponse(raw, upstreamType);
 
+    res.setHeader('Content-Type', contentType);
     res.setHeader('X-Image-Proxy-Optimized', optimized ? '1' : '0');
+    res.setHeader('X-Image-Proxy-Kind', kind);
     res.setHeader(
       'X-Image-Proxy-Bytes',
       `${raw.length}->${buffer.length}`,
     );
-    if (optimized) {
-      this.logger.log(
-        `OK ${target.pathname} ${raw.length}→${buffer.length} B`,
-      );
-    }
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=86400, stale-while-revalidate=604800',
+    );
     res.setHeader('Access-Control-Allow-Origin', '*');
+
+    this.logger.log(
+      `[IMAGE_PROXY] ${target.pathname} kind=${kind} optimized=${optimized ? 1 : 0} ${raw.length}->${buffer.length}`,
+    );
+
     res.send(buffer);
   }
 }
