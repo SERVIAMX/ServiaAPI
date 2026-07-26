@@ -61,7 +61,7 @@ export class DashboardController {
   @ApiOperation({
     summary: 'Bitácora de operaciones (sin paginación)',
     description:
-      'Lista completa de `OperationAuditLog` entre `from` y `to` (requeridos). Sin paginación ni otros filtros. Solo Super Administrador / Administrador. Actualizaciones en vivo vía WebSocket namespace `/bitacora`, evento `bitacora:created`.',
+      'Lista `OperationAuditLog` entre `from` y `to` (requeridos). Incluye `tasaExito` (%) y `pendientes` (count) desde `TransactionsHistory` del mismo rango: exitosas=`Code` `0`/`00`, pendientes=`Code` null o vacío. Sin paginación. Solo Super Administrador / Administrador. WebSocket `/bitacora`, evento `bitacora:created`.',
   })
   obtenerBitacora(
     @CurrentUser() user: CurrentUserPayload,

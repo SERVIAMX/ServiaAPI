@@ -24,6 +24,19 @@ function parseRangeEnd(raw: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
+/** Rango desde strings `from`/`to` (YYYY-MM-DD o ISO), igual que bitácora. */
+function parseFilterRange(fromRaw: string, toRaw: string): { from: Date; to: Date } {
+  const fromStr = fromRaw.trim();
+  const toStr = toRaw.trim();
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(fromStr)
+    ? new Date(`${fromStr}T00:00:00.000`)
+    : new Date(fromStr);
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(toStr)
+    ? new Date(`${toStr}T23:59:59.999`)
+    : new Date(toStr);
+  return { from, to };
+}
+
 function pct(part: number, total: number): number {
   if (total <= 0) return 0;
   return Number(((part / total) * 100).toFixed(2));
@@ -397,6 +410,60 @@ export class DashboardService {
 
   async obtenerBitacora(roleId: number, filter: FilterAuditLogDto) {
     await this.assertPrivilegedAdmin(roleId);
-    return this.auditLogService.findFiltered(filter);
+    const [items, tasa] = await Promise.all([
+      this.auditLogService.findFiltered(filter),
+      this.calcularTasaExitoBitacora(filter),
+    ]);
+    return {
+      tasaExito: tasa.tasaExito,
+      totalTransacciones: tasa.totalTransacciones,
+      transaccionesExitosas: tasa.transaccionesExitosas,
+      pendientes: tasa.pendientes,
+      items,
+    };
+  }
+
+  /**
+   * Métricas en `TransactionsHistory` del rango:
+   * - exitosas: `Code` trim = `'0'` o `'00'`
+   * - pendientes: `Code` null o vacío
+   */
+  private async calcularTasaExitoBitacora(filter: FilterAuditLogDto) {
+    const fromRaw = filter.from?.trim();
+    const toRaw = filter.to?.trim();
+    if (!fromRaw || !toRaw) {
+      throw new BadRequestException('from y to son requeridos');
+    }
+    const { from, to } = parseFilterRange(fromRaw, toRaw);
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException(
+        'El rango de fechas es inválido (from > to)',
+      );
+    }
+
+    const raw = await this.txHistoryRepository
+      .createQueryBuilder('th')
+      .select('COUNT(*)', 'total')
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN TRIM(CAST(th.code AS CHAR)) IN ('0', '00') THEN 1 ELSE 0 END), 0)`,
+        'exitosas',
+      )
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN th.code IS NULL OR TRIM(CAST(th.code AS CHAR)) = '' THEN 1 ELSE 0 END), 0)`,
+        'pendientes',
+      )
+      .where('th.fhRegister >= :from', { from })
+      .andWhere('th.fhRegister <= :to', { to })
+      .getRawOne<{ total: string; exitosas: string; pendientes: string }>();
+
+    const totalTransacciones = Number(raw?.total ?? 0) || 0;
+    const transaccionesExitosas = Number(raw?.exitosas ?? 0) || 0;
+    const pendientes = Number(raw?.pendientes ?? 0) || 0;
+    return {
+      tasaExito: pct(transaccionesExitosas, totalTransacciones),
+      totalTransacciones,
+      transaccionesExitosas,
+      pendientes,
+    };
   }
 }
