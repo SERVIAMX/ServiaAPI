@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -14,6 +15,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ProductosModule } from './modules/productos/productos.module';
 import { Role } from './modules/roles/entities/role.entity';
 import { RolesModule } from './modules/roles/roles.module';
+import { TelegramModule } from './modules/telegram/telegram.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
 import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
@@ -26,6 +28,7 @@ import { RedisModule } from './modules/redis/redis.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -45,6 +48,7 @@ import { RedisModule } from './modules/redis/redis.module';
     TransactionsModule,
     WebhookMpModule,
     ImageProxyModule,
+    TelegramModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

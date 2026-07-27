@@ -20,6 +20,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosService } from '../productos/productos.service';
+import { TelegramService } from '../telegram/telegram.service';
 import { User } from '../users/entities/user.entity';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
@@ -191,6 +192,7 @@ export class TransactionsService {
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly transactionGate: TransactionGateService,
+    private readonly telegramService: TelegramService,
   ) {}
 
   private mapTransactionListItem(t: Transaction) {
@@ -957,6 +959,35 @@ export class TransactionsService {
           charged,
           savedIdTransaction,
         );
+
+        const mv =
+          typeof ventaRes === 'object' && ventaRes !== null
+            ? (ventaRes as Record<string, unknown>)
+            : {};
+        const codeRaw = mv.code;
+        const code =
+          codeRaw === undefined || codeRaw === null
+            ? ''
+            : String(codeRaw).trim();
+        const message =
+          typeof mv.message === 'string' && mv.message.trim()
+            ? mv.message.trim()
+            : null;
+
+        void this.telegramService
+          .notifyTransactionError({
+            idTransaction: savedIdTransaction,
+            externalId: id,
+            code,
+            message,
+            destination: dto.destination.trim(),
+            amount: dto.amount,
+            clientName:
+              client.tradeName?.trim() ||
+              client.businessName?.trim() ||
+              `Cliente ${authUser.clientId}`,
+          })
+          .catch(() => undefined);
       }
 
       await this.auditLogService.record({
