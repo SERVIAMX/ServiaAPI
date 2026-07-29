@@ -11,6 +11,7 @@ import { AppModulesModule } from './modules/app-modules/app-modules.module';
 import { BalanceModule } from './modules/balance/balance.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DireccionesModule } from './modules/direcciones/direcciones.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProductosModule } from './modules/productos/productos.module';
 import { Role } from './modules/roles/entities/role.entity';
@@ -45,6 +46,7 @@ import { RedisModule } from './modules/redis/redis.module';
     ProductosModule,
     BalanceModule,
     DashboardModule,
+    DireccionesModule,
     TransactionsModule,
     WebhookMpModule,
     ImageProxyModule,
