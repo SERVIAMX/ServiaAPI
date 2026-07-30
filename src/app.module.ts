@@ -21,6 +21,7 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
 import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
 import { ImageProxyModule } from './modules/image-proxy/image-proxy.module';
+import { MultimediaModule } from './modules/multimedia/multimedia.module';
 import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
@@ -51,6 +52,7 @@ import { RedisModule } from './modules/redis/redis.module';
     WebhookMpModule,
     ImageProxyModule,
     TelegramModule,
+    MultimediaModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -92,7 +92,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Monto pagado inicial. Requerido si RequiresCredit = false. Si se envía > 0, se registra en BalanceHistory como type 1.',
+      'Monto pagado inicial (solicitado). Requerido si RequiresCredit = false. En CustomerBalance.Balance se acredita con bonificación por DiscountPercentage (igual que assignBalance).',
     example: 200,
   })
   @IsOptional()
@@ -102,7 +102,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Línea de crédito máxima permitida para el cliente. CreditBalance no puede ser mayor a CreditLine.',
+      'Línea de crédito máxima. Se valida el CreditBalance solicitado (sin bono) contra CreditLine; el saldo acreditado sí puede superar CreditLine por bonificación.',
     example: 1000,
   })
   @IsOptional()
@@ -111,7 +111,8 @@ export class CreateClientDto {
   creditLine?: number;
 
   @ApiPropertyOptional({
-    description: 'Porcentaje de descuento para el cliente (ej. 10.50).',
+    description:
+      'Porcentaje de bonificación sobre saldo inicial (ej. 10 => 1000 financiados acreditan 1100). Igual que assignBalance.',
     example: 10.5,
   })
   @IsOptional()
@@ -130,8 +131,8 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Balance de crédito inicial para el cliente. Si no se envía, inicia en 0.',
-    example: 0,
+      'Monto de crédito solicitado (financiado). Si RequiresCredit=true debe ser > 0 y ≤ CreditLine. En CustomerBalance.CreditBalance se guarda el Acreditado con bonificación.',
+    example: 1000,
   })
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

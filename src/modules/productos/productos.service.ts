@@ -29,6 +29,8 @@ import type {
 import type { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
 import type { EstatusVentaDto } from './dto/estatus-venta.dto';
 import type { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
+import { BrandImage } from '../multimedia/entities/brand-image.entity';
+import { ProductImage } from '../multimedia/entities/product-image.entity';
 import { Transaction } from '../transactions/entities/transaction.entity';
 
 interface MovivendorLoginData {
@@ -422,6 +424,10 @@ export class ProductosService {
     private readonly config: ConfigService,
     @InjectRepository(Transaction)
     private readonly txRepo: Repository<Transaction>,
+    @InjectRepository(BrandImage)
+    private readonly brandImageRepo: Repository<BrandImage>,
+    @InjectRepository(ProductImage)
+    private readonly productImageRepo: Repository<ProductImage>,
   ) {}
 
   private cfg(key: string): string | undefined {
@@ -442,16 +448,66 @@ export class ProductosService {
     return toProxiedImageUrl(this.publicBaseUrl(), url);
   }
 
-  private withProxiedMarcasLogos(
+  /** Una sola query → Map brand(lower) → Url. */
+  private async loadBrandLogoMap(): Promise<Map<string, string>> {
+    const rows = await this.brandImageRepo.find({
+      select: ['brand', 'url'],
+    });
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      const key = r.brand?.trim().toLowerCase();
+      if (!key) continue;
+      const url = r.url?.trim() ?? '';
+      if (!url) continue;
+      if (!map.has(key)) map.set(key, url);
+    }
+    return map;
+  }
+
+  /**
+   * Logos de marcas desde BrandImages (no Movivendor), luego image-proxy.
+   */
+  private withBrandImagesLogos(
     grupos: MarcasListaPorTipoDto,
+    logoByBrand: Map<string, string>,
   ): MarcasListaPorTipoDto {
     return grupos.map((g) => ({
       tipo: g.tipo,
-      marcas: g.marcas.map((m) => ({
-        marca: m.marca,
-        service_logo: this.proxyLogo(m.service_logo),
-      })),
+      marcas: g.marcas.map((m) => {
+        const url = logoByBrand.get(m.marca.trim().toLowerCase()) ?? '';
+        return {
+          marca: m.marca,
+          service_logo: this.proxyLogo(url),
+        };
+      }),
     }));
+  }
+
+  /**
+   * Logos de productos desde ProductImages por Brand (= marca) y ServiceSKU.
+   * Una query filtrada por marca.
+   */
+  private async loadProductLogoMapsForBrand(marca: string): Promise<{
+    bySku: Map<string, string>;
+    brandFallback: string;
+  }> {
+    const needle = marca.trim().toLowerCase();
+    const rows = await this.productImageRepo
+      .createQueryBuilder('p')
+      .select(['p.serviceSku', 'p.url', 'p.brand'])
+      .where('LOWER(TRIM(p.brand)) = :needle', { needle })
+      .getMany();
+
+    const bySku = new Map<string, string>();
+    let brandFallback = '';
+    for (const r of rows) {
+      const url = r.url?.trim() ?? '';
+      if (!url) continue;
+      if (!brandFallback) brandFallback = url;
+      const sku = r.serviceSku?.trim();
+      if (sku && !bySku.has(sku)) bySku.set(sku, url);
+    }
+    return { bySku, brandFallback };
   }
 
   private logMovivendorCurl(
@@ -700,14 +756,71 @@ export class ProductosService {
     page: number,
     limit: number,
   ): Promise<MarcasListaPaginatedResponse> {
-    const servicios = await this.fetchProductosNormalizados();
+    const [servicios, logoByBrand] = await Promise.all([
+      this.fetchProductosNormalizados(),
+      this.loadBrandLogoMap(),
+    ]);
     const grupos = groupByTipoYMarca(servicios);
-    const full = this.withProxiedMarcasLogos(mapGruposAMarcasLigeras(grupos));
+    const full = this.withBrandImagesLogos(
+      mapGruposAMarcasLigeras(grupos),
+      logoByBrand,
+    );
     const { data, porTipo } = sliceMarcasPerTipo(full, page, limit);
     return {
       data,
       meta: { page, limit, porTipo },
     };
+  }
+
+  /**
+   * Todas las marcas de todos los tipos (sin paginar, logo original Movivendor).
+   * Deduplica por nombre de marca (case-insensitive); prioriza la que tenga logo.
+   */
+  async listAllMarcasConLogo(): Promise<
+    { marca: string; service_logo: string }[]
+  > {
+    const servicios = await this.fetchProductosNormalizados();
+    const grupos = groupByTipoYMarca(servicios);
+    const full = mapGruposAMarcasLigeras(grupos);
+    const byKey = new Map<string, { marca: string; service_logo: string }>();
+    for (const g of full) {
+      for (const m of g.marcas) {
+        const marca = m.marca?.trim() ?? '';
+        if (!marca) continue;
+        const key = marca.toLowerCase();
+        const logo = m.service_logo?.trim() ?? '';
+        const prev = byKey.get(key);
+        if (!prev) {
+          byKey.set(key, { marca, service_logo: logo });
+          continue;
+        }
+        if (!prev.service_logo && logo) {
+          byKey.set(key, { marca, service_logo: logo });
+        }
+      }
+    }
+    return [...byKey.values()];
+  }
+
+  /**
+   * Catálogo completo (sin paginar) con los campos de GET /productos/por-marca.
+   * Logo original de Movivendor (sin image-proxy).
+   */
+  async listAllProductosPorMarcaCampos(): Promise<
+    {
+      service_sku: string;
+      service_logo: string;
+      service_group: string;
+      service_name: string;
+    }[]
+  > {
+    const all = await this.fetchProductosNormalizados();
+    return all.map((p) => ({
+      service_sku: p.service_sku?.trim() ?? '',
+      service_logo: p.service_logo?.trim() ?? '',
+      service_group: p.service_group?.trim() ?? '',
+      service_name: p.service_name?.trim() ?? '',
+    }));
   }
 
   /**
@@ -719,9 +832,15 @@ export class ProductosService {
     page: number,
     limit: number,
   ): Promise<MarcasListaPaginatedResponse> {
-    const servicios = await this.fetchProductosNormalizados();
+    const [servicios, logoByBrand] = await Promise.all([
+      this.fetchProductosNormalizados(),
+      this.loadBrandLogoMap(),
+    ]);
     const grupos = groupByTipoYMarca(servicios);
-    const full = this.withProxiedMarcasLogos(mapGruposAMarcasLigeras(grupos));
+    const full = this.withBrandImagesLogos(
+      mapGruposAMarcasLigeras(grupos),
+      logoByBrand,
+    );
     const filtered = filterMarcasLigerasPorNombre(full, nombre);
     const { data, porTipo } = sliceMarcasPerTipo(filtered, page, limit);
     return {
@@ -739,8 +858,11 @@ export class ProductosService {
     page: number,
     limit: number,
   ): Promise<PaginatedResult<ProductoVentaSeleccionDto>> {
-    const all = await this.fetchProductosNormalizados();
     const needle = marca.trim().toLowerCase();
+    const [all, logoMaps] = await Promise.all([
+      this.fetchProductosNormalizados(),
+      this.loadProductLogoMapsForBrand(marca),
+    ]);
     const filtered = all.filter(
       (p) => p.service_name.trim().toLowerCase() === needle,
     );
@@ -749,9 +871,14 @@ export class ProductosService {
     const slice = filtered.slice(start, start + limit);
     const data = slice.map((p) => {
       const item = toProductoVentaSeleccion(p);
+      const sku = item.service_sku?.trim() ?? '';
+      const url =
+        (sku ? logoMaps.bySku.get(sku) : undefined) ??
+        logoMaps.brandFallback ??
+        '';
       return {
         ...item,
-        service_logo: this.proxyLogo(item.service_logo),
+        service_logo: this.proxyLogo(url),
       };
     });
     return {

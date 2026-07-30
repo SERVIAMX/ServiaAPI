@@ -52,7 +52,7 @@ export class ClientsService {
       }
       if (creditBalVal > creditLine) {
         throw new BadRequestException(
-          'CreditBalance no puede ser mayor a CreditLine',
+          'El monto de crédito solicitado no puede ser mayor a CreditLine',
         );
       }
     } else {
@@ -79,10 +79,27 @@ export class ClientsService {
     return runInTransaction(this.dataSource, async (manager) => {
       const savedClient = await manager.save(client);
 
+      // Igual que assignBalance: se valida/registra el monto solicitado,
+      // y en CustomerBalance se suma el Acreditado (con DiscountPercentage).
+      const creditAcreditado =
+        creditBalVal > 0
+          ? calcularSaldoAcreditadoConBonificacion(
+              creditBalVal,
+              savedClient.discountPercentage,
+            )
+          : 0;
+      const balanceAcreditado =
+        amountVal > 0
+          ? calcularSaldoAcreditadoConBonificacion(
+              amountVal,
+              savedClient.discountPercentage,
+            )
+          : 0;
+
       const balance = this.customerBalanceRepository.create({
         customer: savedClient,
-        creditBalance: requiresCredit ? creditBalVal.toFixed(2) : '0.00',
-        balance: amountVal > 0 ? amountVal.toFixed(2) : '0.00',
+        creditBalance: requiresCredit ? creditAcreditado.toFixed(2) : '0.00',
+        balance: amountVal > 0 ? balanceAcreditado.toFixed(2) : '0.00',
       });
       await manager.save(balance);
 
@@ -92,22 +109,18 @@ export class ClientsService {
           this.balanceHistoryRepository.create({
             customer: savedClient,
             amount: creditBalVal.toFixed(2),
-            acreditado: creditBalVal.toFixed(2),
+            acreditado: creditAcreditado.toFixed(2),
             transactionType: 2,
             isPaid: 0,
           }),
         );
       }
       if (amountVal > 0) {
-        const acreditadoInicial = calcularSaldoAcreditadoConBonificacion(
-          amountVal,
-          savedClient.discountPercentage,
-        );
         historyToInsert.push(
           this.balanceHistoryRepository.create({
             customer: savedClient,
             amount: amountVal.toFixed(2),
-            acreditado: acreditadoInicial.toFixed(2),
+            acreditado: balanceAcreditado.toFixed(2),
             transactionType: 1,
             isPaid: 1,
           }),
