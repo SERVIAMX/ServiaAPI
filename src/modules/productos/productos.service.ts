@@ -485,28 +485,42 @@ export class ProductosService {
 
   /**
    * Logos de productos desde ProductImages por Brand (= marca) y ServiceSKU.
-   * Una query filtrada por marca.
+   * Si no hay en ProductImages, cae a BrandImages.Url por Brand.
    */
   private async loadProductLogoMapsForBrand(marca: string): Promise<{
     bySku: Map<string, string>;
     brandFallback: string;
   }> {
     const needle = marca.trim().toLowerCase();
-    const rows = await this.productImageRepo
-      .createQueryBuilder('p')
-      .select(['p.serviceSku', 'p.url', 'p.brand'])
-      .where('LOWER(TRIM(p.brand)) = :needle', { needle })
-      .getMany();
+    const [productRows, brandRow] = await Promise.all([
+      this.productImageRepo
+        .createQueryBuilder('p')
+        .select(['p.serviceSku', 'p.url', 'p.brand'])
+        .where('LOWER(TRIM(p.brand)) = :needle', { needle })
+        .getMany(),
+      this.brandImageRepo
+        .createQueryBuilder('b')
+        .select(['b.url', 'b.brand'])
+        .where('LOWER(TRIM(b.brand)) = :needle', { needle })
+        .andWhere('b.url IS NOT NULL')
+        .andWhere("TRIM(b.url) <> ''")
+        .getOne(),
+    ]);
 
     const bySku = new Map<string, string>();
     let brandFallback = '';
-    for (const r of rows) {
+    for (const r of productRows) {
       const url = r.url?.trim() ?? '';
       if (!url) continue;
       if (!brandFallback) brandFallback = url;
       const sku = r.serviceSku?.trim();
       if (sku && !bySku.has(sku)) bySku.set(sku, url);
     }
+
+    if (!brandFallback) {
+      brandFallback = brandRow?.url?.trim() ?? '';
+    }
+
     return { bySku, brandFallback };
   }
 

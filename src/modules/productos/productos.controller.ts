@@ -51,7 +51,7 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Productos por marca (paginado, listo para venta)',
     description:
-      'Misma fuente que marcas. `data` sin `service_last_update`: `service_group`, `service_sku`, `service_name`, `service_logo` (desde `ProductImages` donde `Brand` = marca, match preferente por `ServiceSKU`; luego image-proxy), `destination` y `offers` para ejecutarTx.',
+      'Misma fuente que marcas. `data` sin `service_last_update`: `service_group`, `service_sku`, `service_name`, `service_logo` (desde `ProductImages` donde `Brand` = marca, match preferente por `ServiceSKU`; si no hay, `BrandImages` por `Brand`; luego image-proxy), `destination` y `offers` para ejecutarTx.',
   })
   productosPorMarca(@Query() query: ProductosPorMarcaQueryDto) {
     return this.productosService.getProductosPorMarca(
