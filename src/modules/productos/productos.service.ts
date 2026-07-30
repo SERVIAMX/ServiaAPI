@@ -485,7 +485,7 @@ export class ProductosService {
 
   /**
    * Logos de productos desde ProductImages por Brand (= marca) y ServiceSKU.
-   * Si no hay en ProductImages, cae a BrandImages.Url por Brand.
+   * Si ProductImages no tiene Url (null/vacío) o no hay fila, cae a BrandImages.
    */
   private async loadProductLogoMapsForBrand(marca: string): Promise<{
     bySku: Map<string, string>;
@@ -502,24 +502,21 @@ export class ProductosService {
         .createQueryBuilder('b')
         .select(['b.url', 'b.brand'])
         .where('LOWER(TRIM(b.brand)) = :needle', { needle })
-        .andWhere('b.url IS NOT NULL')
-        .andWhere("TRIM(b.url) <> ''")
         .getOne(),
     ]);
 
     const bySku = new Map<string, string>();
-    let brandFallback = '';
+    let productBrandFallback = '';
     for (const r of productRows) {
       const url = r.url?.trim() ?? '';
-      if (!url) continue;
-      if (!brandFallback) brandFallback = url;
       const sku = r.serviceSku?.trim();
+      // Incluye filas aunque Url esté vacía (marca presencia del SKU).
       if (sku && !bySku.has(sku)) bySku.set(sku, url);
+      if (url && !productBrandFallback) productBrandFallback = url;
     }
 
-    if (!brandFallback) {
-      brandFallback = brandRow?.url?.trim() ?? '';
-    }
+    const brandImagesUrl = brandRow?.url?.trim() ?? '';
+    const brandFallback = productBrandFallback || brandImagesUrl;
 
     return { bySku, brandFallback };
   }
@@ -886,10 +883,12 @@ export class ProductosService {
     const data = slice.map((p) => {
       const item = toProductoVentaSeleccion(p);
       const sku = item.service_sku?.trim() ?? '';
+      const fromSku = sku ? logoMaps.bySku.get(sku) : undefined;
+      // Url vacía en ProductImages → tratar como no encontrada → BrandImages / fallback
       const url =
-        (sku ? logoMaps.bySku.get(sku) : undefined) ??
-        logoMaps.brandFallback ??
-        '';
+        fromSku && fromSku.trim()
+          ? fromSku.trim()
+          : logoMaps.brandFallback || '';
       return {
         ...item,
         service_logo: this.proxyLogo(url),

@@ -11,9 +11,9 @@ export class MultimediaController {
   @Public()
   @Post('brand-images/sync')
   @ApiOperation({
-    summary: 'Sincronizar BrandImages desde Movivendor',
+    summary: 'Sincronizar BrandImages (solo faltantes)',
     description:
-      'Consulta el catálogo completo de Movivendor (misma fuente que GET /productos/marcas), extrae marca + service_logo de todos los tipos, limpia BrandImages e inserta Brand/Url. Público para ejecutar desde Swagger.',
+      'Consulta marcas en Movivendor e inserta en BrandImages solo las que aún no existen (por Brand). Url siempre queda null (no copia service_logo). No borra ni actualiza filas existentes.',
   })
   syncBrandImages() {
     return this.multimediaService.syncBrandImagesFromMovivendor();
@@ -22,9 +22,9 @@ export class MultimediaController {
   @Public()
   @Post('product-images/sync')
   @ApiOperation({
-    summary: 'Sincronizar ProductImages desde Movivendor',
+    summary: 'Sincronizar ProductImages (solo faltantes)',
     description:
-      'Lista todas las marcas y, marca por marca (equivalente a GET /productos/por-marca), inserta ServiceSKU, Url (service_logo), ServiceGroup y Brand (service_name) en ProductImages. Limpia la tabla antes. Público para Swagger.',
+      'Lista marcas y productos (como por-marca) e inserta en ProductImages solo los faltantes (clave ServiceSKU). Url siempre null. No borra ni actualiza existentes.',
   })
   syncProductImages() {
     return this.multimediaService.syncProductImagesFromMovivendor();

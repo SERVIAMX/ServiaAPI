@@ -33,7 +33,7 @@ export class ImageProxyController {
   @ApiOperation({
     summary: 'Proxy de logos (CORS + resize PNG embebido en SVG)',
     description: [
-      'Descarga desde `*.movivendor.com`.',
+      'Descarga desde `*.movivendor.com` o buckets S3 (`*.s3.*.amazonaws.com`, p. ej. `serviasys.s3.us-east-1.amazonaws.com`).',
       'Si el SVG es vectorial (`path`/`g`/…), se devuelve igual.',
       'Si contiene `<image … data:image/…;base64>`, redimensiona el PNG embebido',
       'y sustituye ÚNICAMENTE el Base64 en href/xlink:href.',
@@ -57,7 +57,7 @@ export class ImageProxyController {
 
     if (!isAllowedImageProxyHost(target.hostname)) {
       throw new BadRequestException(
-        'Host no permitido para image-proxy (solo *.movivendor.com)',
+        'Host no permitido para image-proxy (solo *.movivendor.com o *.s3.*.amazonaws.com)',
       );
     }
 

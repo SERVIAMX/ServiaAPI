@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import awsConfig from './config/aws.config';
 import { createTypeOrmOptions } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { AppModulesModule } from './modules/app-modules/app-modules.module';
@@ -16,12 +17,14 @@ import { HealthModule } from './modules/health/health.module';
 import { ProductosModule } from './modules/productos/productos.module';
 import { Role } from './modules/roles/entities/role.entity';
 import { RolesModule } from './modules/roles/roles.module';
+import { S3Module } from './modules/s3/s3.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { UsersModule } from './modules/users/users.module';
 import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
 import { ImageProxyModule } from './modules/image-proxy/image-proxy.module';
 import { MultimediaModule } from './modules/multimedia/multimedia.module';
+import { BrandImagesModule } from './modules/brand-images/brand-images.module';
 import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
@@ -29,6 +32,7 @@ import { RedisModule } from './modules/redis/redis.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      load: [awsConfig],
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
@@ -53,6 +57,8 @@ import { RedisModule } from './modules/redis/redis.module';
     ImageProxyModule,
     TelegramModule,
     MultimediaModule,
+    BrandImagesModule,
+    S3Module,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
