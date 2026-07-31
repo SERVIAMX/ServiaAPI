@@ -112,21 +112,28 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Porcentaje de bonificación sobre saldo inicial (ej. 10 => 1000 financiados acreditan 1100). Igual que assignBalance.',
+      'Porcentaje de bonificación sobre saldo inicial (ej. 10 => 1000 financiados acreditan 1100). Mínimo 1; no se permiten valores como 0 o 0.2.',
     example: 10.5,
+    minimum: 1,
   })
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
+  @Min(1, {
+    message: 'discountPercentage debe ser al menos 1 (no se permiten 0 ni 0.x)',
+  })
   discountPercentage?: number;
 
   @ApiPropertyOptional({
-    description: 'Porcentaje de comisión para el cliente (ej. 3.25).',
+    description:
+      'Porcentaje de comisión para el cliente (ej. 3.25). Mínimo 1; no se permiten valores como 0 o 0.2.',
     example: 3.25,
+    minimum: 1,
   })
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
+  @Min(1, {
+    message: 'commissionPercentage debe ser al menos 1 (no se permiten 0 ni 0.x)',
+  })
   commissionPercentage?: number;
 
   @ApiPropertyOptional({
