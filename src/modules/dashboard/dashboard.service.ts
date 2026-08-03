@@ -386,13 +386,22 @@ export class DashboardService {
         'nombreCliente',
       )
       .addSelect('cb.balance', 'saldo')
-      .orderBy('CAST(cb.balance AS DECIMAL(12,2))', 'DESC')
+      .addSelect('cb.creditBalance', 'creditBalance')
+      .orderBy(
+        '(CAST(cb.balance AS DECIMAL(12,2)) + CAST(cb.creditBalance AS DECIMAL(12,2)))',
+        'DESC',
+      )
       .limit(4)
-      .getRawMany<{ nombreCliente: string; saldo: string }>();
+      .getRawMany<{
+        nombreCliente: string;
+        saldo: string;
+        creditBalance: string;
+      }>();
 
     const saldoPorCliente = topSaldoRaw.map((row) => ({
       nombreCliente: String(row.nombreCliente ?? '').trim() || 'Cliente',
       saldo: Number(row.saldo) || 0,
+      creditBalance: Number(row.creditBalance) || 0,
     }));
 
     return {

@@ -38,7 +38,7 @@ export class DashboardController {
   @ApiOperation({
     summary: 'Métricas del dashboard (Super Administrador / Administrador)',
     description:
-      'Body opcional: `fechaInicio`/`fechaFin` filtran métricas de `TransactionsHistory`. `saldoPorCliente`: top 4 por `CustomerBalance.balance`. Sin fechas → día actual (México).',
+      'Body opcional: `fechaInicio`/`fechaFin` filtran métricas de `TransactionsHistory`. `saldoPorCliente`: top 4 por (`balance` + `creditBalance`) con `saldo` y `creditBalance` (financiado). Sin fechas → día actual (México).',
   })
   obtenerDashboard(
     @CurrentUser() user: CurrentUserPayload,
