@@ -1,17 +1,12 @@
 import {
   Body,
   Controller,
-  Delete,
-  Get,
-  Param,
-  ParseIntPipe,
   Patch,
   Post,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
-  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -38,15 +33,6 @@ export class FavoritesBrandsController {
     return this.favoritesService.add(user.clientId, dto);
   }
 
-  @Get()
-  @ApiOperation({
-    summary: 'Listar marcas favoritas del cliente autenticado',
-    description: 'Solo favoritos con Estatus = 1 del IdCliente del JWT.',
-  })
-  list(@CurrentUser() user: CurrentUserPayload) {
-    return this.favoritesService.listByClient(user.clientId);
-  }
-
   @Patch('deactivate')
   @ApiOperation({
     summary: 'Desactivar favorito por marca (Estatus = 0)',
@@ -58,30 +44,5 @@ export class FavoritesBrandsController {
     @Body() dto: CreateFavoriteBrandDto,
   ) {
     return this.favoritesService.deactivateByBrand(user.clientId, dto.brand);
-  }
-
-  @Patch(':id/deactivate')
-  @ApiOperation({
-    summary: 'Desactivar favorito por Id (Estatus = 0)',
-  })
-  @ApiParam({ name: 'id', description: 'Id del registro FavoritesBrands' })
-  deactivateById(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    return this.favoritesService.remove(user.clientId, id);
-  }
-
-  @Delete(':id')
-  @ApiOperation({
-    summary: 'Quitar marca de favoritos',
-    description: 'Soft: pone Estatus = 0. Solo del cliente autenticado.',
-  })
-  @ApiParam({ name: 'id', description: 'Id del registro FavoritesBrands' })
-  remove(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    return this.favoritesService.remove(user.clientId, id);
   }
 }
