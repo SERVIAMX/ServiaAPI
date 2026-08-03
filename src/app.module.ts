@@ -25,6 +25,7 @@ import { WebhookMpModule } from './modules/webhook-mp/webhook-mp.module';
 import { ImageProxyModule } from './modules/image-proxy/image-proxy.module';
 import { MultimediaModule } from './modules/multimedia/multimedia.module';
 import { BrandImagesModule } from './modules/brand-images/brand-images.module';
+import { FavoritesBrandsModule } from './modules/favorites-brands/favorites-brands.module';
 import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
@@ -58,6 +59,7 @@ import { RedisModule } from './modules/redis/redis.module';
     TelegramModule,
     MultimediaModule,
     BrandImagesModule,
+    FavoritesBrandsModule,
     S3Module,
   ],
   providers: [

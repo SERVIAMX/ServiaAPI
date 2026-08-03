@@ -5,6 +5,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUserPayload } from '../../common/interfaces/current-user-payload.interface';
 import { TransactionsService } from '../transactions/transactions.service';
 import { ConsultarSaldoExternoDto } from './dto/consultar-saldo-externo.dto';
 import { EstatusVentaDto } from './dto/estatus-venta.dto';
@@ -27,23 +29,34 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Marcas por tipo (Movivendor)',
     description:
-      'Marcas agrupadas por `tipo`. En cada bloque, hasta `limit` marcas de ese tipo (por defecto 6); `page` aplica por igual a todos los tipos. `meta.porTipo` indica `total` y `totalPages` por tipo. Los tipos sin marcas en esa página no aparecen en `data`. `service_logo` sale de `BrandImages.Url` (match por `Brand`) y se reescribe vía `/api/image-proxy`. Una petición a Movivendor + lookup local.',
+      'Marcas agrupadas por `tipo`. En cada bloque, hasta `limit` marcas de ese tipo (por defecto 6); `page` aplica por igual a todos los tipos. Las marcas favoritas del cliente JWT (`FavoritesBrands.Brand` = `marca`, Estatus=1) salen primero; luego el resto. `service_logo` desde BrandImages + image-proxy.',
   })
-  marcas(@Query() query: ProductosMarcasQueryDto) {
-    return this.productosService.getMarcas(query.page ?? 1, query.limit ?? 6);
+  marcas(
+    @Query() query: ProductosMarcasQueryDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.productosService.getMarcas(
+      query.page ?? 1,
+      query.limit ?? 6,
+      user?.clientId,
+    );
   }
 
   @Get('marcas/buscar')
   @ApiOperation({
     summary: 'Buscar marcas por nombre (Movivendor)',
     description:
-      'Misma respuesta que `GET /productos/marcas`: `data` + `meta` con paginación por tipo. Filtra marcas donde el nombre contiene `nombre` (equivalente a `LIKE %nombre%`, sin distinguir mayúsculas). Tipos sin coincidencias no aparecen en `meta.porTipo`. `service_logo` desde `BrandImages` + image-proxy. Una petición a Movivendor + lookup local.',
+      'Misma respuesta que `GET /productos/marcas`. Filtra por `nombre`. Favoritos del cliente JWT primero. `service_logo` desde BrandImages + image-proxy.',
   })
-  marcasBuscar(@Query() query: ProductosMarcasBuscarQueryDto) {
+  marcasBuscar(
+    @Query() query: ProductosMarcasBuscarQueryDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
     return this.productosService.getMarcasPorNombre(
       query.nombre,
       query.page ?? 1,
       query.limit ?? 6,
+      user?.clientId,
     );
   }
 

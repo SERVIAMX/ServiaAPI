@@ -31,6 +31,7 @@ import type { EstatusVentaDto } from './dto/estatus-venta.dto';
 import type { EjecutarVentaDto } from './dto/ejecutar-venta.dto';
 import { BrandImage } from '../multimedia/entities/brand-image.entity';
 import { ProductImage } from '../multimedia/entities/product-image.entity';
+import { FavoriteBrand } from '../favorites-brands/entities/favorite-brand.entity';
 import { Transaction } from '../transactions/entities/transaction.entity';
 
 interface MovivendorLoginData {
@@ -416,6 +417,24 @@ function sliceMarcasPerTipo(
   return { data, porTipo };
 }
 
+/** Favoritos primero (match case-insensitive Brand ↔ marca); el resto conserva orden relativo. */
+function sortMarcasFavoritasPrimero(
+  full: MarcasListaPorTipoDto,
+  favoriteKeys: Set<string>,
+): MarcasListaPorTipoDto {
+  if (favoriteKeys.size === 0) return full;
+  return full.map((g) => {
+    const favs: typeof g.marcas = [];
+    const rest: typeof g.marcas = [];
+    for (const m of g.marcas) {
+      const key = m.marca.trim().toLowerCase();
+      if (favoriteKeys.has(key)) favs.push(m);
+      else rest.push(m);
+    }
+    return { tipo: g.tipo, marcas: [...favs, ...rest] };
+  });
+}
+
 @Injectable()
 export class ProductosService {
   private readonly logger = new Logger(ProductosService.name);
@@ -428,6 +447,8 @@ export class ProductosService {
     private readonly brandImageRepo: Repository<BrandImage>,
     @InjectRepository(ProductImage)
     private readonly productImageRepo: Repository<ProductImage>,
+    @InjectRepository(FavoriteBrand)
+    private readonly favoriteBrandRepo: Repository<FavoriteBrand>,
   ) {}
 
   private cfg(key: string): string | undefined {
@@ -519,6 +540,26 @@ export class ProductosService {
     const brandFallback = productBrandFallback || brandImagesUrl;
 
     return { bySku, brandFallback };
+  }
+
+  /** Brand favoritos activos del cliente (lower/trim) para ordenar marcas. */
+  private async loadFavoriteBrandKeys(
+    clientId: number | null | undefined,
+  ): Promise<Set<string>> {
+    if (!clientId) return new Set();
+    const rows = await this.favoriteBrandRepo
+      .createQueryBuilder('f')
+      .leftJoin('f.client', 'c')
+      .select(['f.id', 'f.brand'])
+      .where('c.id = :clientId', { clientId })
+      .andWhere('f.estatus = :estatus', { estatus: 1 })
+      .getMany();
+    const keys = new Set<string>();
+    for (const r of rows) {
+      const k = r.brand?.trim().toLowerCase();
+      if (k) keys.add(k);
+    }
+    return keys;
   }
 
   private logMovivendorCurl(
@@ -766,16 +807,19 @@ export class ProductosService {
   async getMarcas(
     page: number,
     limit: number,
+    clientId?: number | null,
   ): Promise<MarcasListaPaginatedResponse> {
-    const [servicios, logoByBrand] = await Promise.all([
+    const [servicios, logoByBrand, favoriteKeys] = await Promise.all([
       this.fetchProductosNormalizados(),
       this.loadBrandLogoMap(),
+      this.loadFavoriteBrandKeys(clientId),
     ]);
     const grupos = groupByTipoYMarca(servicios);
-    const full = this.withBrandImagesLogos(
+    const withLogos = this.withBrandImagesLogos(
       mapGruposAMarcasLigeras(grupos),
       logoByBrand,
     );
+    const full = sortMarcasFavoritasPrimero(withLogos, favoriteKeys);
     const { data, porTipo } = sliceMarcasPerTipo(full, page, limit);
     return {
       data,
@@ -842,18 +886,21 @@ export class ProductosService {
     nombre: string,
     page: number,
     limit: number,
+    clientId?: number | null,
   ): Promise<MarcasListaPaginatedResponse> {
-    const [servicios, logoByBrand] = await Promise.all([
+    const [servicios, logoByBrand, favoriteKeys] = await Promise.all([
       this.fetchProductosNormalizados(),
       this.loadBrandLogoMap(),
+      this.loadFavoriteBrandKeys(clientId),
     ]);
     const grupos = groupByTipoYMarca(servicios);
-    const full = this.withBrandImagesLogos(
+    const withLogos = this.withBrandImagesLogos(
       mapGruposAMarcasLigeras(grupos),
       logoByBrand,
     );
-    const filtered = filterMarcasLigerasPorNombre(full, nombre);
-    const { data, porTipo } = sliceMarcasPerTipo(filtered, page, limit);
+    const filtered = filterMarcasLigerasPorNombre(withLogos, nombre);
+    const full = sortMarcasFavoritasPrimero(filtered, favoriteKeys);
+    const { data, porTipo } = sliceMarcasPerTipo(full, page, limit);
     return {
       data,
       meta: { page, limit, porTipo },
