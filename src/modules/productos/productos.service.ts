@@ -376,6 +376,7 @@ function mapGruposAMarcasLigeras(grupos: MarcasPorTipoDto): MarcasListaPorTipoDt
       return {
         marca: m.marca,
         service_logo: conLogo?.service_logo ?? '',
+        esFavorito: false,
       };
     }),
   }));
@@ -417,19 +418,19 @@ function sliceMarcasPerTipo(
   return { data, porTipo };
 }
 
-/** Favoritos primero (match case-insensitive Brand ↔ marca); el resto conserva orden relativo. */
+/** Favoritos primero + flag `esFavorito` (match case-insensitive Brand ↔ marca). */
 function sortMarcasFavoritasPrimero(
   full: MarcasListaPorTipoDto,
   favoriteKeys: Set<string>,
 ): MarcasListaPorTipoDto {
-  if (favoriteKeys.size === 0) return full;
   return full.map((g) => {
     const favs: typeof g.marcas = [];
     const rest: typeof g.marcas = [];
     for (const m of g.marcas) {
-      const key = m.marca.trim().toLowerCase();
-      if (favoriteKeys.has(key)) favs.push(m);
-      else rest.push(m);
+      const esFavorito = favoriteKeys.has(m.marca.trim().toLowerCase());
+      const item = { ...m, esFavorito };
+      if (esFavorito) favs.push(item);
+      else rest.push(item);
     }
     return { tipo: g.tipo, marcas: [...favs, ...rest] };
   });
@@ -499,6 +500,7 @@ export class ProductosService {
         return {
           marca: m.marca,
           service_logo: this.proxyLogo(url),
+          esFavorito: m.esFavorito ?? false,
         };
       }),
     }));

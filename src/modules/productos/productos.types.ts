@@ -53,6 +53,8 @@ export interface MarcasListaPaginatedResponse {
 export interface MarcaListaDto {
   marca: string;
   service_logo: string;
+  /** true si la marca está en FavoritesBrands (Estatus=1) del cliente JWT. */
+  esFavorito: boolean;
 }
 
 export interface TipoMarcasListaDto {

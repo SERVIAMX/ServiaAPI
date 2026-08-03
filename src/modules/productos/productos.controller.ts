@@ -29,7 +29,7 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Marcas por tipo (Movivendor)',
     description:
-      'Marcas agrupadas por `tipo`. En cada bloque, hasta `limit` marcas de ese tipo (por defecto 6); `page` aplica por igual a todos los tipos. Las marcas favoritas del cliente JWT (`FavoritesBrands.Brand` = `marca`, Estatus=1) salen primero; luego el resto. `service_logo` desde BrandImages + image-proxy.',
+      'Marcas agrupadas por `tipo`. En cada bloque, hasta `limit` marcas de ese tipo (por defecto 6); `page` aplica por igual a todos los tipos. Las marcas favoritas del cliente JWT (`FavoritesBrands.Brand` = `marca`, Estatus=1) salen primero y llevan `esFavorito: true` (resto `false`). `service_logo` desde BrandImages + image-proxy.',
   })
   marcas(
     @Query() query: ProductosMarcasQueryDto,
