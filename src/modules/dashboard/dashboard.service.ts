@@ -404,6 +404,23 @@ export class DashboardService {
       creditBalance: Number(row.creditBalance) || 0,
     }));
 
+    const conteoTx = await this.txHistoryRepository
+      .createQueryBuilder('th')
+      .select(
+        `COALESCE(SUM(CASE WHEN TRIM(CAST(th.code AS CHAR)) IN ('0', '00') THEN 1 ELSE 0 END), 0)`,
+        'exitosas',
+      )
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN TRIM(CAST(th.code AS CHAR)) NOT IN ('0', '00') OR th.code IS NULL THEN 1 ELSE 0 END), 0)`,
+        'fallidas',
+      )
+      .where('th.fhRegister >= :from', { from })
+      .andWhere('th.fhRegister <= :to', { to })
+      .getRawOne<{ exitosas: string; fallidas: string }>();
+
+    const transaccionesExitosas = Number(conteoTx?.exitosas ?? 0) || 0;
+    const transaccionesFallidas = Number(conteoTx?.fallidas ?? 0) || 0;
+
     return {
       totalClientes,
       ventasHoy,
@@ -414,6 +431,8 @@ export class DashboardService {
       ventasPorCliente,
       saldoPorCliente,
       ventasRangoFechas,
+      transaccionesExitosas,
+      transaccionesFallidas,
     };
   }
 
