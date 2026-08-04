@@ -27,6 +27,7 @@ import { MultimediaModule } from './modules/multimedia/multimedia.module';
 import { BrandImagesModule } from './modules/brand-images/brand-images.module';
 import { FavoritesBrandsModule } from './modules/favorites-brands/favorites-brands.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { SupplierPurchasesModule } from './modules/supplier-purchases/supplier-purchases.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { RedisModule } from './modules/redis/redis.module';
     BrandImagesModule,
     FavoritesBrandsModule,
     S3Module,
+    SupplierPurchasesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -37,7 +37,7 @@ export class BalanceController {
   @ApiOperation({
     summary: 'Consulta saldo con Movivendor (login interno + balance)',
     description:
-      'Ejecuta login contra `MOVIVENDOR_LOGIN`, obtiene token y consulta saldo en `MOVIVENDOR_BALANCE` enviando `{ token }`.',
+      'Login + balance con canal TAE (`MOVIVENDOR_CHANNEL`/`PASS`) y con servicios (`MOVIVENDOR_CHANNEL_SERVICES`/`PASS_SERVICES`). Respuesta: `{ balance, balanceServices }`.',
   })
   consultarSaldoMovivendor() {
     return this.balanceService.consultarSaldoMovivendor();

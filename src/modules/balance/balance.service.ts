@@ -112,14 +112,17 @@ export class BalanceService {
     return `${nombre} (${client.id})`;
   }
 
-  private async loginMovivendor(): Promise<string> {
+  private async loginMovivendor(
+    channelEnv = 'MOVIVENDOR_CHANNEL',
+    passEnv = 'MOVIVENDOR_PASS',
+  ): Promise<string> {
     const url = this.cfg('MOVIVENDOR_LOGIN');
-    const user = this.cfg('MOVIVENDOR_CHANNEL');
-    const password = this.cfg('MOVIVENDOR_PASS');
+    const user = this.cfg(channelEnv);
+    const password = this.cfg(passEnv);
     const ident = this.cfg('MOVIVENDOR_USER');
     if (!url || !user || !password || !ident) {
       throw new InternalServerErrorException(
-        'Configuración Movivendor incompleta (MOVIVENDOR_LOGIN, MOVIVENDOR_CHANNEL, MOVIVENDOR_PASS, MOVIVENDOR_USER)',
+        `Configuración Movivendor incompleta (MOVIVENDOR_LOGIN, ${channelEnv}, ${passEnv}, MOVIVENDOR_USER)`,
       );
     }
 
@@ -136,30 +139,43 @@ export class BalanceService {
         }),
       });
     } catch {
-      throw new BadGatewayException('No se pudo conectar con Movivendor (login)');
+      throw new BadGatewayException(
+        `No se pudo conectar con Movivendor (login ${channelEnv})`,
+      );
     }
 
     let json: MovivendorLoginResponse;
     try {
       json = (await res.json()) as MovivendorLoginResponse;
     } catch {
-      throw new BadGatewayException('Respuesta inválida de Movivendor (login)');
+      throw new BadGatewayException(
+        `Respuesta inválida de Movivendor (login ${channelEnv})`,
+      );
     }
 
     if (!res.ok) {
       throw new BadGatewayException(
-        json?.message ?? `Movivendor login HTTP ${res.status}`,
+        json?.message
+          ? `${json.message} (${channelEnv})`
+          : `Movivendor login HTTP ${res.status} (${channelEnv})`,
       );
     }
 
     if (json.code !== 0 || !json.data?.token) {
-      throw new BadGatewayException(json.message ?? 'Movivendor login rechazado');
+      throw new BadGatewayException(
+        json.message
+          ? `${json.message} (${channelEnv})`
+          : `Movivendor login rechazado (${channelEnv})`,
+      );
     }
 
     return json.data.token;
   }
 
-  async consultarSaldoMovivendor(): Promise<{ balance: number }> {
+  private async fetchBalanceConCredenciales(
+    channelEnv: string,
+    passEnv: string,
+  ): Promise<number> {
     const url = this.cfg('MOVIVENDOR_BALANCE');
     if (!url) {
       throw new InternalServerErrorException(
@@ -167,7 +183,7 @@ export class BalanceService {
       );
     }
 
-    const token = await this.loginMovivendor();
+    const token = await this.loginMovivendor(channelEnv, passEnv);
 
     let res: Response;
     try {
@@ -177,14 +193,18 @@ export class BalanceService {
         body: JSON.stringify({ token }),
       });
     } catch {
-      throw new BadGatewayException('No se pudo conectar con Movivendor (balance)');
+      throw new BadGatewayException(
+        `No se pudo conectar con Movivendor (balance ${channelEnv})`,
+      );
     }
 
     let json: unknown;
     try {
       json = await res.json();
     } catch {
-      throw new BadGatewayException('Respuesta inválida de Movivendor (balance)');
+      throw new BadGatewayException(
+        `Respuesta inválida de Movivendor (balance ${channelEnv})`,
+      );
     }
 
     if (!res.ok) {
@@ -195,7 +215,7 @@ export class BalanceService {
         typeof (json as { message: unknown }).message === 'string'
           ? (json as { message: string }).message
           : `Movivendor balance HTTP ${res.status}`;
-      throw new BadGatewayException(msg);
+      throw new BadGatewayException(`${msg} (${channelEnv})`);
     }
 
     if (
@@ -207,15 +227,35 @@ export class BalanceService {
         typeof json.message === 'string' && json.message.trim()
           ? json.message
           : `Movivendor balance code ${json.code}`;
-      throw new BadGatewayException(msg);
+      throw new BadGatewayException(`${msg} (${channelEnv})`);
     }
 
     const balance = parseMovivendorBalance(json);
     if (balance === null) {
-      throw new BadGatewayException('Respuesta inválida de Movivendor (balance)');
+      throw new BadGatewayException(
+        `Respuesta inválida de Movivendor (balance ${channelEnv})`,
+      );
     }
 
-    return { balance };
+    return balance;
+  }
+
+  async consultarSaldoMovivendor(): Promise<{
+    balance: number;
+    balanceServices: number;
+  }> {
+    const [balance, balanceServices] = await Promise.all([
+      this.fetchBalanceConCredenciales(
+        'MOVIVENDOR_CHANNEL',
+        'MOVIVENDOR_PASS',
+      ),
+      this.fetchBalanceConCredenciales(
+        'MOVIVENDOR_CHANNEL_SERVICES',
+        'MOVIVENDOR_PASS_SERVICES',
+      ),
+    ]);
+
+    return { balance, balanceServices };
   }
 
   async ajustarSaldoCliente(
