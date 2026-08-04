@@ -399,6 +399,25 @@ function filterMarcasLigerasPorNombre(
     .filter((g) => g.marcas.length > 0);
 }
 
+/** Une catálogos TAE + Servicios; prioriza el primero ante SKU duplicado. */
+function mergeProductosCatalogos(
+  primary: ProductoServicioDto[],
+  secondary: ProductoServicioDto[],
+): ProductoServicioDto[] {
+  const seen = new Set<string>();
+  const out: ProductoServicioDto[] = [];
+  for (const p of [...primary, ...secondary]) {
+    const sku = p.service_sku?.trim().toLowerCase();
+    const key =
+      sku ||
+      `${p.service_group}|${p.service_name}`.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
 function sliceMarcasPerTipo(
   full: MarcasListaPorTipoDto,
   page: number,
@@ -694,15 +713,33 @@ export class ProductosService {
 
   /**
    * Obtiene token de sesión en Movivendor (no expuesto vía HTTP).
+   * Por defecto usa MOVIVENDOR_CHANNEL / MOVIVENDOR_PASS.
    */
-  private async loginMovivendor(): Promise<string> {
+  private async loginMovivendor(
+    channelEnv = 'MOVIVENDOR_CHANNEL',
+    passEnv = 'MOVIVENDOR_PASS',
+  ): Promise<string> {
     const url = this.cfg('MOVIVENDOR_LOGIN');
-    const user = this.cfg('MOVIVENDOR_CHANNEL');
-    const password = this.cfg('MOVIVENDOR_PASS');
+    const user = this.cfg(channelEnv);
+    const password = this.cfg(passEnv);
     const ident = this.cfg('MOVIVENDOR_USER');
+    const passMasked =
+      password && password.length > 4
+        ? `${password.slice(0, 2)}***${password.slice(-2)}`
+        : '****';
+
+    this.logger.log(
+      `[loginMovivendor] Inicio channelEnv=${channelEnv} passEnv=${passEnv} ` +
+        `url=${url ?? '—'} user/channel=${user ?? '—'} ident=${ident ?? '—'} pass=${passMasked}`,
+    );
+
     if (!url || !user || !password || !ident) {
+      this.logger.error(
+        `[loginMovivendor] Config incompleta channelEnv=${channelEnv} ` +
+          `url=${Boolean(url)} user=${Boolean(user)} pass=${Boolean(password)} ident=${Boolean(ident)}`,
+      );
       throw new InternalServerErrorException(
-        'Configuración Movivendor incompleta (MOVIVENDOR_LOGIN, MOVIVENDOR_CHANNEL, MOVIVENDOR_PASS, MOVIVENDOR_USER)',
+        `Configuración Movivendor incompleta (MOVIVENDOR_LOGIN, ${channelEnv}, ${passEnv}, MOVIVENDOR_USER)`,
       );
     }
 
@@ -718,35 +755,64 @@ export class ProductosService {
           expire_seconds: 3600,
         }),
       });
-    } catch {
-      throw new BadGatewayException('No se pudo conectar con Movivendor (login)');
+    } catch (err) {
+      this.logger.error(
+        `[loginMovivendor] Error de red channelEnv=${channelEnv}: ${err instanceof Error ? err.message : err}`,
+      );
+      throw new BadGatewayException(
+        `No se pudo conectar con Movivendor (login ${channelEnv})`,
+      );
     }
 
-    let json: MovivendorLoginResponse;
+    const rawText = await res.text().catch(() => '');
+    this.logger.log(
+      `[loginMovivendor] HTTP ${res.status} channelEnv=${channelEnv} body=${rawText.slice(0, 400)}`,
+    );
 
+    let json: MovivendorLoginResponse;
     try {
-      json = (await res.json()) as MovivendorLoginResponse;
+      json = JSON.parse(rawText) as MovivendorLoginResponse;
     } catch {
-      throw new BadGatewayException('Respuesta inválida de Movivendor (login)');
+      this.logger.error(
+        `[loginMovivendor] JSON inválido channelEnv=${channelEnv} body=${rawText.slice(0, 300)}`,
+      );
+      throw new BadGatewayException(
+        `Respuesta inválida de Movivendor (login ${channelEnv})`,
+      );
     }
 
     if (!res.ok) {
+      this.logger.warn(
+        `[loginMovivendor] HTTP no OK channelEnv=${channelEnv} status=${res.status} message=${json?.message ?? '—'}`,
+      );
       throw new BadGatewayException(
-        json?.message ?? `Movivendor login HTTP ${res.status}`,
+        json?.message
+          ? `${json.message} (${channelEnv})`
+          : `Movivendor login HTTP ${res.status} (${channelEnv})`,
       );
     }
 
     if (json.code !== 0 || !json.data?.token) {
+      this.logger.warn(
+        `[loginMovivendor] Rechazado channelEnv=${channelEnv} code=${json?.code} message=${json?.message ?? '—'}`,
+      );
       throw new BadGatewayException(
-        json.message ?? 'Movivendor login rechazado',
+        json.message
+          ? `${json.message} (${channelEnv})`
+          : `Movivendor login rechazado (${channelEnv})`,
       );
     }
 
+    this.logger.log(
+      `[loginMovivendor] OK channelEnv=${channelEnv} tokenLen=${json.data.token.length}`,
+    );
     return json.data.token;
   }
 
-  private async fetchProductosNormalizados(): Promise<ProductoServicioDto[]> {
-    const token = await this.loginMovivendor();
+  /** Catálogo de productos con un token ya obtenido. */
+  private async fetchProductosConToken(
+    token: string,
+  ): Promise<ProductoServicioDto[]> {
     const url = this.cfg('MOVIVENDOR_PRODUCTOS');
     if (!url) {
       throw new InternalServerErrorException(
@@ -800,6 +866,126 @@ export class ProductosService {
       if (p) servicios.push(p);
     }
     return servicios;
+  }
+
+  private async fetchProductosPorCredenciales(
+    channelEnv: string,
+    passEnv: string,
+  ): Promise<ProductoServicioDto[]> {
+    this.logger.log(
+      `[fetchProductos] Inicio login+productos channelEnv=${channelEnv} passEnv=${passEnv}`,
+    );
+    try {
+      const token = await this.loginMovivendor(channelEnv, passEnv);
+      const productos = await this.fetchProductosConToken(token);
+      this.logger.log(
+        `[fetchProductos] OK channelEnv=${channelEnv} productos=${productos.length}`,
+      );
+      return productos;
+    } catch (err) {
+      this.logger.error(
+        `[fetchProductos] FALLO channelEnv=${channelEnv}: ${err instanceof Error ? err.message : err}`,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Catálogo unificado: login + productos con TAE (CHANNEL/PASS) y con
+   * Servicios (CHANNEL_SERVICES/PASS_SERVICES). Ambos logins son obligatorios.
+   * Usado por marcas / buscar / por-marca.
+   */
+  private async fetchProductosNormalizados(): Promise<ProductoServicioDto[]> {
+    const channel = this.cfg('MOVIVENDOR_CHANNEL');
+    const pass = this.cfg('MOVIVENDOR_PASS');
+    const channelSvc = this.cfg('MOVIVENDOR_CHANNEL_SERVICES');
+    const passSvc = this.cfg('MOVIVENDOR_PASS_SERVICES');
+
+    this.logger.log(
+      `[fetchProductosNormalizados] TAE channel=${channel ?? '—'} ` +
+        `SERVICES channel=${channelSvc ?? '—'} ` +
+        `passTAE=${pass ? 'set' : 'missing'} passSVC=${passSvc ? 'set' : 'missing'}`,
+    );
+
+    if (!channel || !pass) {
+      throw new InternalServerErrorException(
+        'Configuración Movivendor incompleta (MOVIVENDOR_CHANNEL, MOVIVENDOR_PASS)',
+      );
+    }
+    if (!channelSvc || !passSvc) {
+      throw new InternalServerErrorException(
+        'Configuración Movivendor incompleta (MOVIVENDOR_CHANNEL_SERVICES, MOVIVENDOR_PASS_SERVICES)',
+      );
+    }
+
+    const settled = await Promise.allSettled([
+      this.fetchProductosPorCredenciales(
+        'MOVIVENDOR_CHANNEL',
+        'MOVIVENDOR_PASS',
+      ),
+      this.fetchProductosPorCredenciales(
+        'MOVIVENDOR_CHANNEL_SERVICES',
+        'MOVIVENDOR_PASS_SERVICES',
+      ),
+    ]);
+
+    const primary =
+      settled[0].status === 'fulfilled' ? settled[0].value : null;
+    const services =
+      settled[1].status === 'fulfilled' ? settled[1].value : null;
+
+    if (settled[0].status === 'rejected') {
+      this.logger.error(
+        `[fetchProductosNormalizados] Login/productos TAE falló: ${settled[0].reason instanceof Error ? settled[0].reason.message : settled[0].reason}`,
+      );
+    }
+    if (settled[1].status === 'rejected') {
+      this.logger.error(
+        `[fetchProductosNormalizados] Login/productos SERVICES falló: ${settled[1].reason instanceof Error ? settled[1].reason.message : settled[1].reason}`,
+      );
+    }
+
+    if (!primary && !services) {
+      const msgTae =
+        settled[0].status === 'rejected'
+          ? settled[0].reason instanceof Error
+            ? settled[0].reason.message
+            : String(settled[0].reason)
+          : '';
+      const msgSvc =
+        settled[1].status === 'rejected'
+          ? settled[1].reason instanceof Error
+            ? settled[1].reason.message
+            : String(settled[1].reason)
+          : '';
+      throw new BadGatewayException(
+        `Movivendor: falló TAE y Servicios. TAE: ${msgTae} | SERVICES: ${msgSvc}`,
+      );
+    }
+
+    if (!primary) {
+      throw new BadGatewayException(
+        settled[0].status === 'rejected'
+          ? settled[0].reason instanceof Error
+            ? settled[0].reason.message
+            : String(settled[0].reason)
+          : 'Movivendor TAE falló',
+      );
+    }
+    if (!services) {
+      throw new BadGatewayException(
+        settled[1].status === 'rejected'
+          ? settled[1].reason instanceof Error
+            ? settled[1].reason.message
+            : String(settled[1].reason)
+          : 'Movivendor SERVICES falló',
+      );
+    }
+
+    this.logger.log(
+      `Catálogo Movivendor unificado: TAE=${primary.length} Servicios=${services.length}`,
+    );
+    return mergeProductosCatalogos(primary, services);
   }
 
   /**
@@ -972,8 +1158,20 @@ export class ProductosService {
     }
     this.logger.log(`${tag} URL destino: ${url}`);
 
-    this.logger.log(`${tag} Obteniendo token Movivendor (login)...`);
-    const token = await this.loginMovivendor();
+    const tipoNorm = dto.tipo?.trim().toLowerCase() ?? '';
+    const useServicesCreds = tipoNorm === 'servicio';
+    const channelEnv = useServicesCreds
+      ? 'MOVIVENDOR_CHANNEL_SERVICES'
+      : 'MOVIVENDOR_CHANNEL';
+    const passEnv = useServicesCreds
+      ? 'MOVIVENDOR_PASS_SERVICES'
+      : 'MOVIVENDOR_PASS';
+
+    this.logger.log(
+      `${tag} Obteniendo token Movivendor (login) tipo=${tipoNorm || '—'} ` +
+        `creds=${channelEnv}/${passEnv}...`,
+    );
+    const token = await this.loginMovivendor(channelEnv, passEnv);
     this.logger.log(`${tag} Token obtenido (${token.length} chars)`);
 
     const terminal =

@@ -28,8 +28,10 @@ export class CreateTransactionDto {
   externalId?: string;
 
   @ApiProperty({
-    description: 'Tipo de transacción (ej. tiempo_aire)',
+    description:
+      'Tipo de transacción. `tiempo_aire` usa canal TAE; `servicio` usa canal Movivendor servicios.',
     example: 'tiempo_aire',
+    enum: ['tiempo_aire', 'servicio'],
   })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()

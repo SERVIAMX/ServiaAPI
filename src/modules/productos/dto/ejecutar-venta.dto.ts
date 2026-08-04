@@ -13,7 +13,9 @@ export class EjecutarVentaDto {
 
   @ApiPropertyOptional({
     example: 'tiempo_aire',
-    description: 'Tipo de transacción (default: tiempo_aire)',
+    description:
+      'Tipo de transacción. `tiempo_aire` → canal TAE (MOVIVENDOR_CHANNEL/PASS). ' +
+      '`servicio` → canal servicios (MOVIVENDOR_CHANNEL_SERVICES/PASS_SERVICES).',
   })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsOptional()
