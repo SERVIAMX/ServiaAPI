@@ -117,7 +117,8 @@ export class ProductosController {
   @ApiOperation({
     summary: 'Consultar saldo externo (Movivendor query/tx)',
     description:
-      'Envía POST a `MOVIVENDOR_CONSULTAR_SALDO_EXTERNO` con token por login en servidor. El `id` de correlación (12 dígitos numéricos) se genera en el servidor para cada petición. Body: `product`, `subprod`, `destination`, `amount`; `terminal` opcional si existe `MOVIVENDOR_TERMINAL` en `.env`.',
+      'Login con `MOVIVENDOR_CHANNEL_SERVICES`/`PASS_SERVICES` y POST a `MOVIVENDOR_CONSULTAR_SALDO_EXTERNO`. ' +
+      'El `id` de correlación se genera en el servidor. Body: `product`, `subprod`, `destination`, `amount`; `terminal` opcional si existe `MOVIVENDOR_TERMINAL`.',
   })
   consultarSaldoExterno(@Body() dto: ConsultarSaldoExternoDto) {
     return this.productosService.consultarSaldoExterno(dto);

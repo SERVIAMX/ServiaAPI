@@ -1386,7 +1386,13 @@ export class ProductosService {
     const tag = '[consultarSaldoExterno]';
     this.logger.log(`${tag} DTO recibido: ${JSON.stringify(dto)}`);
 
-    const token = await this.loginMovivendor();
+    this.logger.log(
+      `${tag} Login con canal servicios (MOVIVENDOR_CHANNEL_SERVICES)...`,
+    );
+    const token = await this.loginMovivendor(
+      'MOVIVENDOR_CHANNEL_SERVICES',
+      'MOVIVENDOR_PASS_SERVICES',
+    );
     const terminal =
       dto.terminal?.trim() || this.cfg('MOVIVENDOR_TERMINAL') || '';
     if (!terminal) {
