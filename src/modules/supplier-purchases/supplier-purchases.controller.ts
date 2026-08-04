@@ -29,7 +29,8 @@ export class SupplierPurchasesController {
   @ApiOperation({
     summary: 'Registrar compra a proveedor',
     description:
-      'Solo Super Administrador. Type: 1 = Tiempo_aire, 2 = Servicios.',
+      'Solo Super Administrador. Type: 1 = Tiempo_aire, 2 = Servicios. ' +
+      'AmountReceived = amount + 7.3% (calculado en servidor).',
   })
   create(
     @CurrentUser() user: CurrentUserPayload,

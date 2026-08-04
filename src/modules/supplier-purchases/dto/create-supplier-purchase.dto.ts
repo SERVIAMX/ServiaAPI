@@ -3,17 +3,15 @@ import { Type } from 'class-transformer';
 import { IsIn, IsNumber, Min } from 'class-validator';
 
 export class CreateSupplierPurchaseDto {
-  @ApiProperty({ example: 1000.5, description: 'Monto de la compra' })
+  @ApiProperty({
+    example: 1000.5,
+    description:
+      'Monto de la compra. AmountReceived se calcula como amount + 7.3%.',
+  })
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
   amount!: number;
-
-  @ApiProperty({ example: 980.0, description: 'Monto recibido' })
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  amountReceived!: number;
 
   @ApiProperty({
     example: 1,

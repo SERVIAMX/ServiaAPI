@@ -59,9 +59,12 @@ export class SupplierPurchasesService {
   ): Promise<SupplierPurchase> {
     await this.assertSuperAdministrador(auth.roleId);
 
+    const amount = Number(dto.amount);
+    const amountReceived = Number((amount * 1.073).toFixed(2));
+
     const row = this.purchaseRepo.create({
-      amount: Number(dto.amount).toFixed(2),
-      amountReceived: Number(dto.amountReceived).toFixed(2),
+      amount: amount.toFixed(2),
+      amountReceived: amountReceived.toFixed(2),
       type: dto.type,
     });
     return this.purchaseRepo.save(row);
