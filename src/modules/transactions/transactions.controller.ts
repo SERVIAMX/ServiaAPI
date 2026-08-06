@@ -48,10 +48,26 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'Estado del gate de transacciones',
     description:
-      'Indica si las ventas están pausadas (`paused`) y si el backend es Redis o memoria. Cualquier usuario autenticado puede consultar.',
+      'Indica si las ventas estan pausadas (`paused`) y si el backend es Redis o memoria. Cualquier usuario autenticado puede consultar.',
   })
   getGate() {
     return this.transactionGate.getStatus();
+  }
+
+  @Get('SummaryDay')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'SummaryDay',
+    description:
+      'Resumen del día actual para el cliente del JWT: operaciones, exitosas (code 0/00), ' +
+      'comisionGenerada (sum Amount × DiscountPercentage del cliente), montoOperado, tasaExito y marcas (brand con más registros).',
+  })
+  summaryDay(@Req() req: Request) {
+    const authUser = req.user as AuthUser | undefined;
+    if (!authUser?.clientId) {
+      throw new UnauthorizedException('Usuario no autenticado');
+    }
+    return this.transactionsService.summaryDay(authUser.clientId);
   }
 
   @Post('gate')

@@ -528,6 +528,94 @@ export class TransactionsService {
     };
   }
 
+  /**
+   * Resumen del día actual (hora local del servidor) para el cliente autenticado.
+   */
+  async summaryDay(clientId: number) {
+    if (!clientId) throw new UnauthorizedException('Usuario no autenticado');
+
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) throw new NotFoundException('Cliente no encontrado');
+
+    const now = new Date();
+    const from = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const to = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999,
+    );
+
+    const raw = await this.txRepo
+      .createQueryBuilder('t')
+      .innerJoin('t.user', 'u')
+      .innerJoin('u.client', 'c')
+      .select('COUNT(*)', 'operaciones')
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN TRIM(CAST(t.code AS CHAR)) IN ('0', '00') THEN 1 ELSE 0 END), 0)`,
+        'exitosas',
+      )
+      .addSelect('COALESCE(SUM(t.amount), 0)', 'montoOperado')
+      .where('c.id = :clientId', { clientId })
+      .andWhere('t.fhRegister >= :from', { from })
+      .andWhere('t.fhRegister <= :to', { to })
+      .getRawOne<{
+        operaciones: string;
+        exitosas: string;
+        montoOperado: string;
+      }>();
+
+    const operaciones = Number(raw?.operaciones ?? 0) || 0;
+    const exitosas = Number(raw?.exitosas ?? 0) || 0;
+    const montoOperadoNum = Number(raw?.montoOperado ?? 0) || 0;
+    const discountPct = Number(client.discountPercentage ?? 0);
+    const pct = Number.isFinite(discountPct) ? discountPct : 0;
+    const comisionGenerada = Number(
+      ((montoOperadoNum * pct) / 100).toFixed(2),
+    );
+    const tasaExito =
+      operaciones > 0
+        ? Number(((exitosas / operaciones) * 100).toFixed(2))
+        : 0;
+
+    const topBrand = await this.txRepo
+      .createQueryBuilder('t')
+      .innerJoin('t.user', 'u')
+      .innerJoin('u.client', 'c')
+      .select(
+        `COALESCE(NULLIF(TRIM(t.brand), ''), 'Sin marca')`,
+        'brand',
+      )
+      .addSelect('COUNT(*)', 'cantidad')
+      .where('c.id = :clientId', { clientId })
+      .andWhere('t.fhRegister >= :from', { from })
+      .andWhere('t.fhRegister <= :to', { to })
+      .groupBy(`COALESCE(NULLIF(TRIM(t.brand), ''), 'Sin marca')`)
+      .orderBy('COUNT(*)', 'DESC')
+      .limit(1)
+      .getRawOne<{ brand: string; cantidad: string }>();
+
+    return {
+      operaciones,
+      exitosas,
+      comisionGenerada: `$${comisionGenerada.toFixed(2)}`,
+      montoOperado: `$${montoOperadoNum.toFixed(2)}`,
+      tasaExito: `${tasaExito}%`,
+      marcas: topBrand?.brand?.trim() || null,
+    };
+  }
+
   async findByDateRange(filter: FilterTransactionsDto) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
