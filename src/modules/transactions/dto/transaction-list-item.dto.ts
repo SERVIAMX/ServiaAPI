@@ -66,4 +66,12 @@ export class TransactionListItemDto {
 
   @ApiPropertyOptional()
   brand!: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Nombre del cliente (Clients.TradeName o BusinessName) vía IdUser → ClientId. Solo en GET /transactions/all.',
+    example: 'Comercial XYZ',
+    nullable: true,
+  })
+  nombreCliente?: string | null;
 }

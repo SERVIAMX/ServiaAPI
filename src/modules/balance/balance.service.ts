@@ -283,7 +283,7 @@ export class BalanceService {
       });
       if (pendientePago > 0) {
         throw new BadRequestException(
-          'El cliente tiene un abono pendiente de pago (BalanceHistory isPaid = 0). Solo puede recibir saldo pagado hasta liquidarlo.',
+          'El cliente tiene un abono pendiente de pago. Solo puede recibir saldo financiado hasta liquidarlo.',
         );
       }
     }

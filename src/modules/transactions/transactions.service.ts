@@ -623,12 +623,23 @@ export class TransactionsService {
 
     const [rows, total] = await this.txRepo.findAndCount({
       where: { fhRegister: Between(from, to) },
+      relations: { user: { client: true } },
       order: { idTransaction: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
 
-    const data = rows.map((t) => this.mapTransactionListItem(t));
+    const data = rows.map((t) => {
+      const client = t.user?.client;
+      const nombreCliente =
+        (client?.tradeName?.trim() ||
+          client?.businessName?.trim() ||
+          '').trim() || null;
+      return {
+        ...this.mapTransactionListItem(t),
+        nombreCliente,
+      };
+    });
 
     return {
       data,

@@ -119,7 +119,7 @@ export class BalanceController {
               success: false,
               statusCode: 400,
               message:
-                'El cliente tiene un abono pendiente de pago (BalanceHistory isPaid = 0). Solo puede recibir saldo pagado hasta liquidarlo.',
+                'El cliente tiene un abono pendiente de pago Solo puede recibir saldo financiado hasta liquidarlo.',
               data: null,
               timestamp: '2026-07-16T17:00:00.000Z',
             },

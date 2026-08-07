@@ -116,10 +116,10 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'Listar todas las transacciones (sin filtrar por usuario)',
     description:
-      'Paginado. Filtra únicamente por rango de fechas sobre FHRegister (from / to). Cada ítem incluye `isCredit` (0=Pagado, 1=Crédito) y `tipoCobro` (texto).',
+      'Paginado. Filtra por rango de fechas sobre FHRegister (from / to). Incluye `nombreCliente` (Clients vía IdUser → ClientId), `isCredit` y `tipoCobro`.',
   })
   @ApiOkResponse({
-    description: 'Respuesta estándar: data[] incluye tipoCobro y isCredit',
+    description: 'Respuesta estándar: data[] incluye nombreCliente, tipoCobro e isCredit',
     schema: {
       properties: {
         success: { type: 'boolean', example: true },
