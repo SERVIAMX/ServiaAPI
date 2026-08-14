@@ -621,13 +621,22 @@ export class TransactionsService {
     const limit = filter.limit ?? 10;
     const { from, to } = this.parseFilterRange(filter);
 
-    const [rows, total] = await this.txRepo.findAndCount({
-      where: { fhRegister: Between(from, to) },
-      relations: { user: { client: true } },
-      order: { idTransaction: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const baseQb = () =>
+      this.txRepo
+        .createQueryBuilder('t')
+        .where('t.fhRegister >= :from', { from })
+        .andWhere('t.fhRegister <= :to', { to });
+
+    const total = await baseQb().getCount();
+
+    const rows = await baseQb()
+      .leftJoinAndSelect('t.user', 'u')
+      .leftJoinAndSelect('u.client', 'c')
+      .withDeleted()
+      .orderBy('t.idTransaction', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
 
     const data = rows.map((t) => {
       const client = t.user?.client;
