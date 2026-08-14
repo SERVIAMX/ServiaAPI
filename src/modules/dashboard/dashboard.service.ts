@@ -421,6 +421,33 @@ export class DashboardService {
     const transaccionesExitosas = Number(conteoTx?.exitosas ?? 0) || 0;
     const transaccionesFallidas = Number(conteoTx?.fallidas ?? 0) || 0;
 
+    let clientesTransaccionesFallidas: string[] = [];
+    if (transaccionesFallidas > 0) {
+      const fallidasClientesRaw = await this.txHistoryRepository
+        .createQueryBuilder('th')
+        .innerJoin('th.user', 'u')
+        .innerJoin('u.client', 'c')
+        .select(
+          "COALESCE(NULLIF(TRIM(c.tradeName), ''), c.businessName)",
+          'nombreCliente',
+        )
+        .where('th.fhRegister >= :from', { from })
+        .andWhere('th.fhRegister <= :to', { to })
+        .andWhere(
+          `(TRIM(CAST(th.code AS CHAR)) NOT IN ('0', '00') OR th.code IS NULL)`,
+        )
+        .andWhere('c.deletedAt IS NULL')
+        .groupBy('c.id')
+        .addGroupBy('c.tradeName')
+        .addGroupBy('c.businessName')
+        .orderBy('nombreCliente', 'ASC')
+        .getRawMany<{ nombreCliente: string }>();
+
+      clientesTransaccionesFallidas = fallidasClientesRaw
+        .map((r) => String(r.nombreCliente ?? '').trim())
+        .filter((n) => n.length > 0);
+    }
+
     return {
       totalClientes,
       ventasHoy,
@@ -433,6 +460,7 @@ export class DashboardService {
       ventasRangoFechas,
       transaccionesExitosas,
       transaccionesFallidas,
+      clientesTransaccionesFallidas,
     };
   }
 

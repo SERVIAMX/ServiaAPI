@@ -39,7 +39,7 @@ export class DashboardController {
     summary: 'Métricas del dashboard (Super Administrador / Administrador)',
     description:
       'Body opcional: `fechaInicio`/`fechaFin` filtran métricas de `TransactionsHistory`. ' +
-      '`transaccionesExitosas` (code 0/00) y `transaccionesFallidas` (distinto). ' +
+      '`transaccionesExitosas` (code 0/00), `transaccionesFallidas` y `clientesTransaccionesFallidas` (nombres únicos). ' +
       '`saldoPorCliente`: top 4 por (`balance` + `creditBalance`). Sin fechas → día actual (México).',
   })
   obtenerDashboard(
