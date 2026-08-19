@@ -36,6 +36,17 @@ export class ReferencesCodesService {
       throw new NotFoundException('Cliente no encontrado');
     }
 
+    const vigente = await this.referenceCodeRepo.findOne({
+      where: {
+        customer: { id: clientId },
+        estatus: 1,
+      },
+      order: { id: 'DESC' },
+    });
+    if (vigente?.code) {
+      return { code: vigente.code };
+    }
+
     for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
       const code = this.generateNumericCode();
       const exists = await this.referenceCodeRepo.exists({ where: { code } });

@@ -20,8 +20,8 @@ export class ReferencesCodesController {
   @ApiOperation({
     summary: 'Generar código de referencia',
     description:
-      'Genera un código numérico de 8 dígitos único en `ReferencesCodes` ' +
-      'asociado al `clientId` del JWT. Respuesta: `{ code }`.',
+      'Si el cliente ya tiene un código vigente (`Estatus = 1`), lo reutiliza. ' +
+      'Si no, genera uno numérico de 8 dígitos único en `ReferencesCodes`. Respuesta: `{ code }`.',
   })
   generate(@CurrentUser() user: CurrentUserPayload) {
     if (!user?.clientId) {

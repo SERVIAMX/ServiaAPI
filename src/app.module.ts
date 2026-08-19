@@ -29,6 +29,7 @@ import { FavoritesBrandsModule } from './modules/favorites-brands/favorites-bran
 import { RedisModule } from './modules/redis/redis.module';
 import { SupplierPurchasesModule } from './modules/supplier-purchases/supplier-purchases.module';
 import { ReferencesCodesModule } from './modules/references-codes/references-codes.module';
+import { PendingAssignmentModule } from './modules/pending-assignment/pending-assignment.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { ReferencesCodesModule } from './modules/references-codes/references-cod
     S3Module,
     SupplierPurchasesModule,
     ReferencesCodesModule,
+    PendingAssignmentModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
