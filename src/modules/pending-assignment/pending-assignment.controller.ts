@@ -20,20 +20,18 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
+import {
+  VOUCHER_ALLOWED_MIMES,
+  VOUCHER_MAX_UPLOAD_BYTES,
+} from '../../common/constants/voucher-upload.constants';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CurrentUserPayload } from '../../common/interfaces/current-user-payload.interface';
 import { FilterPendingAssignmentDto } from './dto/filter-pending-assignment.dto';
 import { PendingAssignmentService } from './pending-assignment.service';
 
-const MAX_UPLOAD = 10 * 1024 * 1024;
+const MAX_UPLOAD = VOUCHER_MAX_UPLOAD_BYTES;
 
-const VOUCHER_MIMES = new Set([
-  'image/png',
-  'image/jpg',
-  'image/jpeg',
-  'image/webp',
-  'application/pdf',
-]);
+const VOUCHER_MIMES = VOUCHER_ALLOWED_MIMES;
 
 @ApiTags('PendingAssignment')
 @ApiBearerAuth()

@@ -230,7 +230,7 @@ export class BalanceController {
     summary:
       'Historial global pendiente de pago (solo Super Administrador / administración)',
     description:
-      'Registros de `BalanceHistory` con `isPaid = 0` de todos los clientes. Incluye `customerId` y `cliente` (nombre comercial o razón social + id). Paginación y fechas opcionales como en `history`. Acceso: rol "Super Administrador", "Administrador" (nombre, sin distinguir mayúsculas) o `RoleId = 1` (portal administración).',
+      'Registros de `BalanceHistory` con `isPaid = 0` de todos los clientes. Incluye `customerId`, `cliente` y `creditPayment` (si existe en `CreditPayments` por `IdHistoryBalance`). Paginación y fechas opcionales como en `history`. Acceso: rol "Super Administrador", "Administrador" (nombre, sin distinguir mayúsculas) o `RoleId = 1` (portal administración).',
   })
   pendingPaymentHistoryGlobal(
     @CurrentUser() user: CurrentUserPayload,

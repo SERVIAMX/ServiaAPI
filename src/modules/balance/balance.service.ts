@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { runInTransaction } from '../../database/query-runner.util';
 import { calcularSaldoAcreditadoConBonificacion } from '../../common/utils/client-balance-bonus.util';
 import {
@@ -23,6 +23,7 @@ import { Role } from '../roles/entities/role.entity';
 import { AdjustCustomerBalanceDto } from './dto/adjust-customer-balance.dto';
 import { FilterBalanceHistoryDto } from './dto/filter-balance-history.dto';
 import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
+import { CreditPayment } from '../credit-payments/entities/credit-payment.entity';
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -76,6 +77,8 @@ export class BalanceService {
     private readonly balanceHistoryRepository: Repository<BalanceHistory>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    @InjectRepository(CreditPayment)
+    private readonly creditPaymentRepository: Repository<CreditPayment>,
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
   ) {}
@@ -110,6 +113,41 @@ export class BalanceService {
       (client.tradeName?.trim() || client.businessName?.trim() || '').trim() ||
       'Cliente';
     return `${nombre} (${client.id})`;
+  }
+
+  private mapCreditPaymentForHistory(
+    payment: CreditPayment | undefined,
+  ): Record<string, unknown> | null {
+    if (!payment) return null;
+    return {
+      id: payment.id,
+      idHistoryBalance: payment.balanceHistory?.id ?? null,
+      idReferenceCode: payment.referenceCode?.id ?? null,
+      code: payment.referenceCode?.code ?? null,
+      voucher: payment.voucher,
+      createdAt: payment.createdAt,
+    };
+  }
+
+  private async creditPaymentsByHistoryIds(
+    historyIds: number[],
+  ): Promise<Map<number, CreditPayment>> {
+    if (historyIds.length === 0) return new Map();
+
+    const rows = await this.creditPaymentRepository.find({
+      where: { balanceHistory: { id: In(historyIds) } },
+      relations: { balanceHistory: true, referenceCode: true },
+      order: { id: 'DESC' },
+    });
+
+    const map = new Map<number, CreditPayment>();
+    for (const row of rows) {
+      const historyId = row.balanceHistory?.id;
+      if (historyId != null && !map.has(historyId)) {
+        map.set(historyId, row);
+      }
+    }
+    return map;
   }
 
   private async loginMovivendor(
@@ -501,6 +539,10 @@ export class BalanceService {
       .take(limit)
       .getManyAndCount();
 
+    const creditPayments = await this.creditPaymentsByHistoryIds(
+      data.map((h) => h.id),
+    );
+
     return {
       data: data.map((h) => ({
         id: h.id,
@@ -511,6 +553,9 @@ export class BalanceService {
         fhRegistro: h.fhRegistro,
         transactionType: h.transactionType === 2 ? 'Credito' : 'Pagado',
         isPaid: 'Pendiente',
+        creditPayment: this.mapCreditPaymentForHistory(
+          creditPayments.get(h.id),
+        ),
       })),
       meta: {
         total,

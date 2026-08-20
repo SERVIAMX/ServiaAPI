@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import type { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
+import { S3_VOUCHERS_FOLDER } from '../../common/constants/voucher-upload.constants';
 import { BalanceService } from '../balance/balance.service';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
@@ -16,8 +17,6 @@ import { S3Service } from '../s3/s3.service';
 import { FilterPendingAssignmentDto } from './dto/filter-pending-assignment.dto';
 import { PendingAssignment } from './entities/pending-assignment.entity';
 import { ReferenceCode } from '../references-codes/entities/reference-code.entity';
-
-const VOUCHER_FOLDER = 'PendingAssignmentVouchers';
 
 function parseRangeStart(raw: string): Date {
   const s = raw.trim();
@@ -145,7 +144,7 @@ export class PendingAssignmentService {
 
     const referenceCodeId = await this.resolveReferenceCodeId(clientId, code);
     const customerBalanceId = await this.resolveCustomerBalanceId(clientId);
-    const { url } = await this.s3Service.uploadFile(voucher, VOUCHER_FOLDER);
+    const { url } = await this.s3Service.uploadFile(voucher, S3_VOUCHERS_FOLDER);
 
     const row = this.pendingRepo.create({
       customerBalance: { id: customerBalanceId } as CustomerBalance,

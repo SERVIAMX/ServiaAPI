@@ -5,12 +5,19 @@ import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { Role } from '../roles/entities/role.entity';
+import { CreditPayment } from '../credit-payments/entities/credit-payment.entity';
 import { BalanceController } from './balance.controller';
 import { BalanceService } from './balance.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CustomerBalance, Client, BalanceHistory, Role]),
+    TypeOrmModule.forFeature([
+      CustomerBalance,
+      Client,
+      BalanceHistory,
+      Role,
+      CreditPayment,
+    ]),
     AuditLogModule,
   ],
   controllers: [BalanceController],

@@ -30,6 +30,7 @@ import { RedisModule } from './modules/redis/redis.module';
 import { SupplierPurchasesModule } from './modules/supplier-purchases/supplier-purchases.module';
 import { ReferencesCodesModule } from './modules/references-codes/references-codes.module';
 import { PendingAssignmentModule } from './modules/pending-assignment/pending-assignment.module';
+import { CreditPaymentsModule } from './modules/credit-payments/credit-payments.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { PendingAssignmentModule } from './modules/pending-assignment/pending-as
     SupplierPurchasesModule,
     ReferencesCodesModule,
     PendingAssignmentModule,
+    CreditPaymentsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
