@@ -92,19 +92,20 @@ export class BalanceService {
    * Super Administrador, Administrador (por nombre de rol) o portal administración (`RoleId = 1`).
    */
   private async assertBalancePrivilegedAdmin(roleId: number): Promise<void> {
-    const role = await this.roleRepository.findOne({ where: { id: roleId } });
-    if (!role) {
-      throw new ForbiddenException('Sin rol asignado');
-    }
-    const nameNorm = role.name?.trim().toLowerCase() ?? '';
-    const allowedNames = new Set(['super administrador', 'administrador']);
-    const isNamedAllowed = allowedNames.has(nameNorm);
-    const isPortalAdmin = role.id === this.administratorRoleId;
-    if (!isNamedAllowed && !isPortalAdmin) {
+    if (!(await this.isBalancePrivilegedAdmin(roleId))) {
       throw new ForbiddenException(
         'Solo Super Administrador o Administrador pueden usar este recurso',
       );
     }
+  }
+
+  private async isBalancePrivilegedAdmin(roleId?: number): Promise<boolean> {
+    if (roleId == null) return false;
+    const role = await this.roleRepository.findOne({ where: { id: roleId } });
+    if (!role) return false;
+    const nameNorm = role.name?.trim().toLowerCase() ?? '';
+    const allowedNames = new Set(['super administrador', 'administrador']);
+    return allowedNames.has(nameNorm) || role.id === this.administratorRoleId;
   }
 
   private clienteNombreConId(client: Client | null | undefined): string {
@@ -120,12 +121,8 @@ export class BalanceService {
   ): Record<string, unknown> | null {
     if (!payment) return null;
     return {
-      id: payment.id,
-      idHistoryBalance: payment.balanceHistory?.id ?? null,
-      idReferenceCode: payment.referenceCode?.id ?? null,
       code: payment.referenceCode?.code ?? null,
       voucher: payment.voucher,
-      createdAt: payment.createdAt,
     };
   }
 
@@ -468,13 +465,24 @@ export class BalanceService {
     };
   }
 
-  async obtenerBalanceHistory(clientId: number, filter: FilterBalanceHistoryDto) {
+  async obtenerBalanceHistory(
+    clientId: number,
+    filter: FilterBalanceHistoryDto,
+    roleId?: number,
+  ) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
+    const isAdmin = await this.isBalancePrivilegedAdmin(roleId);
 
     const qb = this.balanceHistoryRepository
       .createQueryBuilder('bh')
-      .where('bh.CustomerId = :cid', { cid: clientId });
+      .leftJoinAndSelect('bh.customer', 'c');
+
+    if (!isAdmin) {
+      qb.where('bh.CustomerId = :cid', { cid: clientId });
+    } else {
+      qb.where('c.deletedAt IS NULL');
+    }
 
     if (filter.fechaInicio) {
       qb.andWhere('bh.fhRegistro >= :fi', { fi: filter.fechaInicio });
@@ -489,14 +497,27 @@ export class BalanceService {
       .take(limit)
       .getManyAndCount();
 
+    const creditPayments = await this.creditPaymentsByHistoryIds(
+      data.map((h) => h.id),
+    );
+
     return {
       data: data.map((h) => ({
         id: h.id,
+        ...(isAdmin
+          ? {
+              customerId: h.customer?.id ?? null,
+              cliente: this.clienteNombreConId(h.customer ?? undefined),
+            }
+          : {}),
         amount: h.amount,
         acreditado: h.acreditado,
         fhRegistro: h.fhRegistro,
         transactionType: h.transactionType === 2 ? 'Credito' : 'Pagado',
         isPaid: h.isPaid === 1 ? 'Pagado' : 'Pendiente',
+        creditPayment: this.mapCreditPaymentForHistory(
+          creditPayments.get(h.id),
+        ),
       })),
       meta: {
         total,

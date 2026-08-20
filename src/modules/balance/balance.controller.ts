@@ -213,15 +213,21 @@ export class BalanceController {
   @Get('history')
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Obtiene BalanceHistory del cliente autenticado',
+    summary: 'Obtiene BalanceHistory',
     description:
-      'Filtra por fechaInicio/fechaFin y regresa paginado. CustomerId se toma del token (clientId).',
+      'Paginado con fechas opcionales. Cliente: solo su historial. ' +
+      'Super Administrador / Administrador / RoleId=1: todos los clientes (incluye `customerId` y `cliente`). ' +
+      'Incluye `creditPayment` (`code`, `voucher`) si existe.',
   })
   history(
     @CurrentUser() user: CurrentUserPayload,
     @Query() filter: FilterBalanceHistoryDto,
   ) {
-    return this.balanceService.obtenerBalanceHistory(user.clientId, filter);
+    return this.balanceService.obtenerBalanceHistory(
+      user.clientId,
+      filter,
+      user.roleId,
+    );
   }
 
   @Get('pending-payment-history')
