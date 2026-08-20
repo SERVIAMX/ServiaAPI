@@ -6,6 +6,7 @@ import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { Role } from '../roles/entities/role.entity';
 import { S3Module } from '../s3/s3.module';
 import { PendingAssignment } from './entities/pending-assignment.entity';
+import { ReferenceCode } from '../references-codes/entities/reference-code.entity';
 import { PendingAssignmentController } from './pending-assignment.controller';
 import { PendingAssignmentService } from './pending-assignment.service';
 
@@ -16,6 +17,7 @@ import { PendingAssignmentService } from './pending-assignment.service';
       CustomerBalance,
       Client,
       Role,
+      ReferenceCode,
     ]),
     S3Module,
     BalanceModule,

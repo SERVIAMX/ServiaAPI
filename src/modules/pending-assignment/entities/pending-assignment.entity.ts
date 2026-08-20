@@ -9,6 +9,7 @@ import {
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
 import { tinyint01Transformer } from '../../../common/transformers/tinyint-01.transformer';
 import { CustomerBalance } from '../../clients/entities/customer-balance.entity';
+import { ReferenceCode } from '../../references-codes/entities/reference-code.entity';
 
 @Entity({ name: 'PendingAssignment' })
 export class PendingAssignment {
@@ -52,4 +53,11 @@ export class PendingAssignment {
     transformer: tinyint01Transformer,
   })
   estatus: number | null;
+
+  @ManyToOne(() => ReferenceCode, {
+    onDelete: 'NO ACTION',
+    onUpdate: 'NO ACTION',
+  })
+  @JoinColumn({ name: 'IdReferenceCode' })
+  referenceCode: ReferenceCode | null;
 }

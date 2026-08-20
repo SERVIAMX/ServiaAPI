@@ -15,6 +15,7 @@ import { Role } from '../roles/entities/role.entity';
 import { S3Service } from '../s3/s3.service';
 import { FilterPendingAssignmentDto } from './dto/filter-pending-assignment.dto';
 import { PendingAssignment } from './entities/pending-assignment.entity';
+import { ReferenceCode } from '../references-codes/entities/reference-code.entity';
 
 const VOUCHER_FOLDER = 'PendingAssignmentVouchers';
 
@@ -51,6 +52,8 @@ export class PendingAssignmentService {
     private readonly clientRepo: Repository<Client>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
+    @InjectRepository(ReferenceCode)
+    private readonly referenceCodeRepo: Repository<ReferenceCode>,
     private readonly s3Service: S3Service,
     private readonly balanceService: BalanceService,
   ) {}
@@ -93,14 +96,45 @@ export class PendingAssignmentService {
     return cb.id;
   }
 
+  private async resolveReferenceCodeId(
+    clientId: number,
+    codeRaw: string,
+  ): Promise<number> {
+    const code = codeRaw?.trim();
+    if (!code || !/^\d{8}$/.test(code)) {
+      throw new BadRequestException(
+        'Code inválido (debe ser numérico de 8 dígitos)',
+      );
+    }
+
+    const ref = await this.referenceCodeRepo.findOne({
+      where: {
+        code,
+        customer: { id: clientId },
+        estatus: 1,
+      },
+      relations: { customer: true },
+    });
+    if (!ref) {
+      throw new NotFoundException(
+        'Código de referencia no encontrado o no vigente para este cliente',
+      );
+    }
+    return ref.id;
+  }
+
   async register(
     clientId: number,
     amount: number,
+    code: string,
     voucher: Express.Multer.File,
     actor?: { userId: number },
   ) {
     if (!clientId) {
       throw new UnauthorizedException('Usuario no autenticado');
+    }
+    if (!code?.trim()) {
+      throw new BadRequestException('Code es obligatorio');
     }
     if (!voucher) {
       throw new BadRequestException('El comprobante (voucher) es obligatorio');
@@ -109,6 +143,7 @@ export class PendingAssignmentService {
       throw new BadRequestException('Amount inválido');
     }
 
+    const referenceCodeId = await this.resolveReferenceCodeId(clientId, code);
     const customerBalanceId = await this.resolveCustomerBalanceId(clientId);
     const { url } = await this.s3Service.uploadFile(voucher, VOUCHER_FOLDER);
 
@@ -117,12 +152,15 @@ export class PendingAssignmentService {
       amount: amount.toFixed(2),
       voucherUrl: url,
       estatus: 1,
+      referenceCode: { id: referenceCodeId } as ReferenceCode,
     });
     const saved = await this.pendingRepo.save(row);
 
     return {
       id: saved.id,
       customerId: clientId,
+      idReferenceCode: referenceCodeId,
+      code: code.trim(),
       amount: saved.amount,
       voucherUrl: saved.voucherUrl,
       estatus: saved.estatus,
@@ -154,7 +192,10 @@ export class PendingAssignmentService {
         estatus: 1,
         createdAt: Between(from, to),
       },
-      relations: { customerBalance: { customer: true } },
+      relations: {
+        customerBalance: { customer: true },
+        referenceCode: true,
+      },
       order: { createdAt: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -169,6 +210,8 @@ export class PendingAssignmentService {
         nombreCliente: clienteNombre(client ?? undefined),
         amount: row.amount,
         voucherUrl: row.voucherUrl,
+        idReferenceCode: row.referenceCode?.id ?? null,
+        code: row.referenceCode?.code ?? null,
         estatus: row.estatus,
         createdAt: row.createdAt,
       };

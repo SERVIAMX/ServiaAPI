@@ -65,14 +65,15 @@ export class PendingAssignmentController {
   @ApiOperation({
     summary: 'Registrar abono pendiente con comprobante',
     description:
-      'Cliente autenticado. Sube voucher obligatorio a S3 y crea registro con `PendingAssignment = 1`.',
+      'Cliente autenticado. Requiere `code` (ReferencesCodes vigente), voucher y amount. Crea registro con `PendingAssignment = 1`.',
   })
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['amount', 'voucher'],
+      required: ['amount', 'code', 'voucher'],
       properties: {
         amount: { type: 'number', example: 200 },
+        code: { type: 'string', example: '48291037', description: 'Código de referencia vigente (8 dígitos)' },
         voucher: { type: 'string', format: 'binary' },
       },
     },
@@ -81,6 +82,7 @@ export class PendingAssignmentController {
     @CurrentUser() user: CurrentUserPayload,
     @UploadedFile() voucher: Express.Multer.File,
     @Body('amount') amountRaw: string,
+    @Body('code') code: string,
   ) {
     if (!user?.clientId) {
       throw new UnauthorizedException('Usuario no autenticado');
@@ -89,6 +91,7 @@ export class PendingAssignmentController {
     return this.pendingAssignmentService.register(
       user.clientId,
       amount,
+      code,
       voucher,
       { userId: user.userId },
     );
