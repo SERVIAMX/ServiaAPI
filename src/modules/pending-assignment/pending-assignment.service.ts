@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -40,6 +42,7 @@ function clienteNombre(client: Client | null | undefined): string {
 
 @Injectable()
 export class PendingAssignmentService {
+  private readonly logger = new Logger(PendingAssignmentService.name);
   private readonly administratorRoleId = 1;
 
   constructor(
@@ -146,14 +149,48 @@ export class PendingAssignmentService {
     const customerBalanceId = await this.resolveCustomerBalanceId(clientId);
     const { url } = await this.s3Service.uploadFile(voucher, S3_VOUCHERS_FOLDER);
 
-    const row = this.pendingRepo.create({
-      customerBalance: { id: customerBalanceId } as CustomerBalance,
-      amount: amount.toFixed(2),
-      voucherUrl: url,
-      estatus: 1,
-      referenceCode: { id: referenceCodeId } as ReferenceCode,
-    });
-    const saved = await this.pendingRepo.save(row);
+    this.logger.log(
+      `[register] clientId=${clientId} customerBalanceId=${customerBalanceId} ` +
+        `referenceCodeId=${referenceCodeId} amount=${amount}`,
+    );
+
+    let saved: PendingAssignment;
+    try {
+      saved = await this.pendingRepo.save(
+        this.pendingRepo.create({
+          customerBalance: { id: customerBalanceId } as CustomerBalance,
+          amount: amount.toFixed(2),
+          voucherUrl: url,
+          estatus: 1,
+          referenceCode: { id: referenceCodeId } as ReferenceCode,
+        }),
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[register] Error al guardar PendingAssignment: ${msg}`);
+      if (msg.includes('ER_NO_SUCH_TABLE')) {
+        throw new InternalServerErrorException(
+          'La tabla PendingAssignment no existe. Ejecuta npm run migration:run',
+        );
+      }
+      if (msg.includes('Unknown column') && msg.includes('IdReferenceCode')) {
+        throw new InternalServerErrorException(
+          'Falta la columna IdReferenceCode. Ejecuta npm run migration:run',
+        );
+      }
+      throw new InternalServerErrorException(
+        `No se pudo guardar PendingAssignment: ${msg}`,
+      );
+    }
+
+    const persisted = await this.pendingRepo.findOne({ where: { id: saved.id } });
+    if (!persisted) {
+      throw new InternalServerErrorException(
+        'El registro no quedó persistido en PendingAssignment',
+      );
+    }
+
+    this.logger.log(`[register] OK id=${saved.id}`);
 
     return {
       id: saved.id,

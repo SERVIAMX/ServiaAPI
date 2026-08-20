@@ -31,17 +31,19 @@ export class PendingAssignment {
     precision: 10,
     scale: 2,
     nullable: true,
+    name: 'Amount',
   })
   amount: string | null;
 
   @CreateDateColumn({
     type: 'datetime',
+    name: 'CreatedAt',
     nullable: true,
     default: () => 'CURRENT_TIMESTAMP',
   })
   createdAt: Date | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'VoucherUrl' })
   voucherUrl: string | null;
 
   /** 1 = pendiente, 0 = procesado/aprobado */
