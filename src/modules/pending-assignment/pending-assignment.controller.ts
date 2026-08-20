@@ -112,7 +112,7 @@ export class PendingAssignmentController {
   @ApiOperation({
     summary: 'Aprobar abono pendiente (admin)',
     description:
-      'Cambia `PendingAssignment` a 0 y ejecuta `assignBalance` con `requiresCredit: false`.',
+      'Cambia `PendingAssignment` a 0, marca `ReferencesCodes.Estatus = 0` del código vinculado y ejecuta `assignBalance` con `requiresCredit: false`.',
   })
   approve(
     @CurrentUser() user: CurrentUserPayload,

@@ -273,7 +273,7 @@ export class PendingAssignmentService {
 
     const row = await this.pendingRepo.findOne({
       where: { id },
-      relations: { customerBalance: { customer: true } },
+      relations: { customerBalance: { customer: true }, referenceCode: true },
     });
     if (!row) {
       throw new NotFoundException('Solicitud pendiente no encontrada');
@@ -306,9 +306,16 @@ export class PendingAssignmentService {
     row.estatus = 0;
     await this.pendingRepo.save(row);
 
+    const referenceCodeId = row.referenceCode?.id;
+    if (referenceCodeId) {
+      await this.referenceCodeRepo.update(referenceCodeId, { estatus: 0 });
+    }
+
     return {
       pendingAssignmentId: row.id,
       estatus: 0,
+      idReferenceCode: referenceCodeId ?? null,
+      referenceCodeEstatus: referenceCodeId ? 0 : null,
       assignBalance: assignResult,
     };
   }
