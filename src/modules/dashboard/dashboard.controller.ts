@@ -39,8 +39,8 @@ export class DashboardController {
     summary: 'Métricas del dashboard (Super Administrador / Administrador)',
     description:
       'Body opcional: `fechaInicio`/`fechaFin` filtran métricas de `TransactionsHistory`. ' +
-      '`transaccionesExitosas` (code 0/00), `transaccionesFallidas` y `clientesTransaccionesFallidas` (nombres únicos). ' +
-      '`saldoPorCliente`: top 4 por (`balance` + `creditBalance`). Sin fechas → día actual (México).',
+      '`transaccionesExitosas` (code 0/00), `transaccionesFallidas` y `clientesTransaccionesFallidas`. ' +
+      '`bank`: saldo actual de `Bank` (Id=1). `saldoPorCliente`: top 4. Sin fechas → día actual (México).',
   })
   obtenerDashboard(
     @CurrentUser() user: CurrentUserPayload,

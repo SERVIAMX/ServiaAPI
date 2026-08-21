@@ -8,6 +8,7 @@ import { IsNull, Repository } from 'typeorm';
 import { BalanceHistory } from '../clients/entities/balance-history.entity';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
+import { Bank } from '../money-transactions/entities/bank.entity';
 import { Role } from '../roles/entities/role.entity';
 import { TransactionHistory } from '../transactions/entities/transaction-history.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -121,6 +122,8 @@ export class DashboardService {
     private readonly txHistoryRepository: Repository<TransactionHistory>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    @InjectRepository(Bank)
+    private readonly bankRepository: Repository<Bank>,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -448,6 +451,11 @@ export class DashboardService {
         .filter((n) => n.length > 0);
     }
 
+    const bankRow = await this.bankRepository.findOne({ where: { id: 1 } });
+    const bank = {
+      amount: Number(bankRow?.amount ?? 0) || 0,
+    };
+
     return {
       totalClientes,
       ventasHoy,
@@ -461,6 +469,7 @@ export class DashboardService {
       transaccionesExitosas,
       transaccionesFallidas,
       clientesTransaccionesFallidas,
+      bank,
     };
   }
 

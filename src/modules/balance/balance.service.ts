@@ -24,6 +24,7 @@ import { AdjustCustomerBalanceDto } from './dto/adjust-customer-balance.dto';
 import { FilterBalanceHistoryDto } from './dto/filter-balance-history.dto';
 import { MarkBalanceHistoryPaidDto } from './dto/mark-balance-history-paid.dto';
 import { CreditPayment } from '../credit-payments/entities/credit-payment.entity';
+import { MoneyTransactionsService } from '../money-transactions/money-transactions.service';
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -81,6 +82,7 @@ export class BalanceService {
     private readonly creditPaymentRepository: Repository<CreditPayment>,
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
+    private readonly moneyTransactionsService: MoneyTransactionsService,
   ) {}
 
   private cfg(key: string): string | undefined {
@@ -616,6 +618,16 @@ export class BalanceService {
     row.isPaid = 1;
     await this.balanceHistoryRepository.save(row);
 
+    const amountNum = Number(row.amount ?? 0);
+    let bankIngreso: Awaited<
+      ReturnType<MoneyTransactionsService['registerIngreso']>
+    > | null = null;
+    if (Number.isFinite(amountNum) && amountNum > 0) {
+      bankIngreso = await this.moneyTransactionsService.registerIngreso(
+        amountNum,
+      );
+    }
+
     return {
       id: row.id,
       customerId: row.customer?.id ?? null,
@@ -624,6 +636,7 @@ export class BalanceService {
       fhRegistro: row.fhRegistro,
       transactionType: row.transactionType === 2 ? 'Credito' : 'Pagado',
       isPaid: 'Pagado',
+      bankIngreso,
     };
   }
 }

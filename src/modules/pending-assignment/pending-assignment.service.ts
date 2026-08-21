@@ -14,6 +14,7 @@ import { S3_VOUCHERS_FOLDER } from '../../common/constants/voucher-upload.consta
 import { BalanceService } from '../balance/balance.service';
 import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
+import { MoneyTransactionsService } from '../money-transactions/money-transactions.service';
 import { Role } from '../roles/entities/role.entity';
 import { S3Service } from '../s3/s3.service';
 import { FilterPendingAssignmentDto } from './dto/filter-pending-assignment.dto';
@@ -58,6 +59,7 @@ export class PendingAssignmentService {
     private readonly referenceCodeRepo: Repository<ReferenceCode>,
     private readonly s3Service: S3Service,
     private readonly balanceService: BalanceService,
+    private readonly moneyTransactionsService: MoneyTransactionsService,
   ) {}
 
   private async assertPrivilegedAdmin(roleId?: number): Promise<void> {
@@ -311,12 +313,18 @@ export class PendingAssignmentService {
       await this.referenceCodeRepo.update(referenceCodeId, { estatus: 0 });
     }
 
+    const bankIngreso = await this.moneyTransactionsService.registerIngreso(
+      amountNum,
+      row.voucherUrl,
+    );
+
     return {
       pendingAssignmentId: row.id,
       estatus: 0,
       idReferenceCode: referenceCodeId ?? null,
       referenceCodeEstatus: referenceCodeId ? 0 : null,
       assignBalance: assignResult,
+      bankIngreso,
     };
   }
 }

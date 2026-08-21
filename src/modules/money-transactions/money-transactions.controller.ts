@@ -1,0 +1,104 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
+import {
+  VOUCHER_ALLOWED_MIMES,
+  VOUCHER_MAX_UPLOAD_BYTES,
+} from '../../common/constants/voucher-upload.constants';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUserPayload } from '../../common/interfaces/current-user-payload.interface';
+import { FilterMoneyTransactionsDto } from './dto/filter-money-transactions.dto';
+import { MoneyTransactionsService } from './money-transactions.service';
+
+@ApiTags('MoneyTransactions')
+@ApiBearerAuth()
+@Controller('money-transactions')
+export class MoneyTransactionsController {
+  constructor(
+    private readonly moneyTransactionsService: MoneyTransactionsService,
+  ) {}
+
+  @Post()
+  @UseInterceptors(
+    FileInterceptor('voucher', {
+      storage: memoryStorage(),
+      limits: { fileSize: VOUCHER_MAX_UPLOAD_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (!VOUCHER_ALLOWED_MIMES.has(file.mimetype)) {
+          return cb(
+            new BadRequestException(
+              'Comprobante inválido. Use PDF, PNG, JPG, JPEG o WEBP',
+            ) as unknown as Error,
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Registrar movimiento de dinero (admin)',
+    description:
+      'Solo Super Administrador / Administrador. Type: 1 = Ingreso (suma a Bank.Amount), 2 = Retiro (resta). ' +
+      '`voucher` opcional (PDF/PNG/JPG/JPEG/WEBP) → S3 `Vouchers`.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['amount', 'type'],
+      properties: {
+        amount: { type: 'number', example: 500 },
+        type: {
+          type: 'integer',
+          enum: [1, 2],
+          example: 1,
+          description: '1 = Ingreso, 2 = Retiro',
+        },
+        voucher: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  create(
+    @CurrentUser() user: CurrentUserPayload,
+    @UploadedFile() voucher: Express.Multer.File | undefined,
+    @Body('amount') amountRaw: string,
+    @Body('type') typeRaw: string,
+  ) {
+    return this.moneyTransactionsService.create(
+      user.roleId,
+      Number(amountRaw),
+      Number(typeRaw),
+      voucher,
+    );
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: 'Listar movimientos de dinero (admin)',
+    description:
+      'Paginado. Solo Super Administrador / Administrador. Filtro por CreatedAt con `from` / `to`.',
+  })
+  findByDateRange(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() filter: FilterMoneyTransactionsDto,
+  ) {
+    return this.moneyTransactionsService.findByDateRange(user.roleId, filter);
+  }
+}
