@@ -71,6 +71,7 @@ export class MoneyTransactionsController {
           example: 1,
           description: '1 = Ingreso, 2 = Retiro',
         },
+        comments: { type: 'string', example: 'Depósito SPEI' },
         voucher: { type: 'string', format: 'binary' },
       },
     },
@@ -80,13 +81,25 @@ export class MoneyTransactionsController {
     @UploadedFile() voucher: Express.Multer.File | undefined,
     @Body('amount') amountRaw: string,
     @Body('type') typeRaw: string,
+    @Body('comments') comments?: string,
   ) {
     return this.moneyTransactionsService.create(
       user.roleId,
       Number(amountRaw),
       Number(typeRaw),
       voucher,
+      comments,
     );
+  }
+
+  @Get('bank')
+  @ApiOperation({
+    summary: 'Obtener saldo de Bank (admin)',
+    description:
+      'Regresa `{ amount }` de `Bank` con Id = 1. Solo Super Administrador / Administrador.',
+  })
+  getBank(@CurrentUser() user: CurrentUserPayload) {
+    return this.moneyTransactionsService.getBankAmount(user.roleId);
   }
 
   @Get()

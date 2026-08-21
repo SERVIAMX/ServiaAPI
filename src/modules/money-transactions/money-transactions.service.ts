@@ -42,6 +42,8 @@ export class MoneyTransactionsService {
   constructor(
     @InjectRepository(MoneyTransaction)
     private readonly moneyTxRepo: Repository<MoneyTransaction>,
+    @InjectRepository(Bank)
+    private readonly bankRepo: Repository<Bank>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
     private readonly s3Service: S3Service,
@@ -81,6 +83,7 @@ export class MoneyTransactionsService {
     amount: number,
     type: number,
     voucher?: Express.Multer.File,
+    comments?: string | null,
   ) {
     await this.assertPrivilegedAdmin(roleId);
 
@@ -100,8 +103,16 @@ export class MoneyTransactionsService {
       voucherUrl = uploaded.url;
     }
 
+    const commentsNorm = comments?.trim() ? comments.trim() : null;
+
     return runInTransaction(this.dataSource, async (manager) => {
-      return this.applyBankMovement(manager, amount, type, voucherUrl);
+      return this.applyBankMovement(
+        manager,
+        amount,
+        type,
+        voucherUrl,
+        commentsNorm,
+      );
     });
   }
 
@@ -112,12 +123,14 @@ export class MoneyTransactionsService {
   async registerIngreso(
     amount: number,
     voucherUrl?: string | null,
+    comments?: string | null,
   ): Promise<{
     id: number;
     amount: string | null;
     type: number | null;
     typeLabel: string | null;
     voucherUrl: string | null;
+    comments: string | null;
     createdAt: Date | null;
     bankAmount: string | null;
   }> {
@@ -125,7 +138,13 @@ export class MoneyTransactionsService {
       throw new BadRequestException('Amount inválido para ingreso de banco');
     }
     return runInTransaction(this.dataSource, async (manager) => {
-      return this.applyBankMovement(manager, amount, 1, voucherUrl ?? null);
+      return this.applyBankMovement(
+        manager,
+        amount,
+        1,
+        voucherUrl ?? null,
+        comments?.trim() ? comments.trim() : null,
+      );
     });
   }
 
@@ -134,6 +153,7 @@ export class MoneyTransactionsService {
     amount: number,
     type: number,
     voucherUrl: string | null,
+    comments: string | null = null,
   ) {
     const bank = await this.ensureBankRow(manager);
     const current = Number(bank.amount ?? 0) || 0;
@@ -146,6 +166,7 @@ export class MoneyTransactionsService {
       amount: amount.toFixed(2),
       type,
       voucherUrl,
+      comments,
     });
     const saved = await manager.save(MoneyTransaction, row);
 
@@ -155,9 +176,16 @@ export class MoneyTransactionsService {
       type: saved.type,
       typeLabel: typeLabel(saved.type),
       voucherUrl: saved.voucherUrl,
+      comments: saved.comments,
       createdAt: saved.createdAt,
       bankAmount: bank.amount,
     };
+  }
+
+  async getBankAmount(roleId: number | undefined): Promise<{ amount: number }> {
+    await this.assertPrivilegedAdmin(roleId);
+    const bank = await this.bankRepo.findOne({ where: { id: BANK_ROW_ID } });
+    return { amount: Number(bank?.amount ?? 0) || 0 };
   }
 
   async findByDateRange(
@@ -192,6 +220,7 @@ export class MoneyTransactionsService {
         type: row.type,
         typeLabel: typeLabel(row.type),
         voucherUrl: row.voucherUrl,
+        comments: row.comments,
         createdAt: row.createdAt,
       })),
       meta: {

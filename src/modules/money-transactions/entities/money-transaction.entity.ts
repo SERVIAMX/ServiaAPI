@@ -43,4 +43,7 @@ export class MoneyTransaction {
 
   @Column({ type: 'text', nullable: true, name: 'VoucherUrl' })
   voucherUrl: string | null;
+
+  @Column({ type: 'text', nullable: true, name: 'Comments' })
+  comments: string | null;
 }
