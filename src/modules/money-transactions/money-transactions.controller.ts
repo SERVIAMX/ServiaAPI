@@ -67,14 +67,18 @@ export class MoneyTransactionsController {
         amount: {
           type: 'string',
           example: '500',
-          description: 'Monto (en form-data llega como string; se parsea en servidor)',
+          description: 'También acepta `Amount`',
         },
         type: {
           type: 'string',
           example: '1',
-          description: '1 = Ingreso, 2 = Retiro',
+          description: '1 = Ingreso, 2 = Retiro. También acepta `Type`',
         },
-        comments: { type: 'string', example: 'Depósito SPEI' },
+        comments: {
+          type: 'string',
+          example: 'Depósito SPEI',
+          description: 'También acepta `Comments` o `Comentarios`',
+        },
         voucher: { type: 'string', format: 'binary' },
       },
     },
@@ -82,10 +86,16 @@ export class MoneyTransactionsController {
   create(
     @CurrentUser() user: CurrentUserPayload,
     @UploadedFile() voucher: Express.Multer.File | undefined,
-    @Body('amount') amount: string | number,
-    @Body('type') type: string | number,
-    @Body('comments') comments?: string,
+    @Body() body: Record<string, unknown>,
   ) {
+    const amount =
+      body.amount ?? body.Amount ?? body.AMOUNT;
+    const type = body.type ?? body.Type;
+    const comments =
+      (body.comments as string | undefined) ??
+      (body.Comments as string | undefined) ??
+      (body.Comentarios as string | undefined);
+
     return this.moneyTransactionsService.create(
       user.roleId,
       amount,
