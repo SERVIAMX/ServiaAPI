@@ -64,11 +64,14 @@ export class MoneyTransactionsController {
       type: 'object',
       required: ['amount', 'type'],
       properties: {
-        amount: { type: 'number', example: 500 },
+        amount: {
+          type: 'string',
+          example: '500',
+          description: 'Monto (en form-data llega como string; se parsea en servidor)',
+        },
         type: {
-          type: 'integer',
-          enum: [1, 2],
-          example: 1,
+          type: 'string',
+          example: '1',
           description: '1 = Ingreso, 2 = Retiro',
         },
         comments: { type: 'string', example: 'Depósito SPEI' },
@@ -79,14 +82,14 @@ export class MoneyTransactionsController {
   create(
     @CurrentUser() user: CurrentUserPayload,
     @UploadedFile() voucher: Express.Multer.File | undefined,
-    @Body('amount') amountRaw: string,
-    @Body('type') typeRaw: string,
+    @Body('amount') amount: string | number,
+    @Body('type') type: string | number,
     @Body('comments') comments?: string,
   ) {
     return this.moneyTransactionsService.create(
       user.roleId,
-      Number(amountRaw),
-      Number(typeRaw),
+      amount,
+      type,
       voucher,
       comments,
     );

@@ -35,6 +35,15 @@ function typeLabel(type: number | null): string | null {
   return null;
 }
 
+/** Parsea montos/enteros que llegan como string en multipart form-data. */
+function parseFormNumber(raw: unknown): number {
+  if (typeof raw === 'number') return raw;
+  if (typeof raw !== 'string') return Number.NaN;
+  const s = raw.trim().replace(/,/g, '');
+  if (!s) return Number.NaN;
+  return Number(s);
+}
+
 @Injectable()
 export class MoneyTransactionsService {
   private readonly administratorRoleId = 1;
@@ -80,12 +89,15 @@ export class MoneyTransactionsService {
 
   async create(
     roleId: number | undefined,
-    amount: number,
-    type: number,
+    amountRaw: unknown,
+    typeRaw: unknown,
     voucher?: Express.Multer.File,
     comments?: string | null,
   ) {
     await this.assertPrivilegedAdmin(roleId);
+
+    const amount = parseFormNumber(amountRaw);
+    const type = parseFormNumber(typeRaw);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('Amount inválido');
