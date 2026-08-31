@@ -78,7 +78,8 @@ export class ClientsService {
       ...clientDto,
       country: dto.country ?? 'México',
       isActive: 1,
-      logoUrl: await this.uploadCustomerLogo(logo),
+      logoUrl:
+        (await this.uploadCustomerLogo(logo)) ?? dto.logoUrl ?? null,
       creditLine: creditLine === undefined ? null : creditLine.toFixed(2),
       discountPercentage:
         discountPercentage === undefined ? null : discountPercentage.toFixed(2),

@@ -1,5 +1,7 @@
 export const S3_CUSTOMERS_FOLDER = 'Customers';
 
+export const S3_PROSPECTS_FOLDER = 'Prospects';
+
 export const CUSTOMER_LOGO_ALLOWED_MIMES = new Set([
   'image/png',
   'image/jpg',

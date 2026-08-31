@@ -32,6 +32,7 @@ import { ReferencesCodesModule } from './modules/references-codes/references-cod
 import { PendingAssignmentModule } from './modules/pending-assignment/pending-assignment.module';
 import { CreditPaymentsModule } from './modules/credit-payments/credit-payments.module';
 import { MoneyTransactionsModule } from './modules/money-transactions/money-transactions.module';
+import { ProspectsModule } from './modules/prospects/prospects.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { MoneyTransactionsModule } from './modules/money-transactions/money-tran
     PendingAssignmentModule,
     CreditPaymentsModule,
     MoneyTransactionsModule,
+    ProspectsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
