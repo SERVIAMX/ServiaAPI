@@ -112,9 +112,6 @@ export function parseUpdateProspectFormBody(
   const notes = parseFormString(pick(body, 'notes', 'Notes'));
   if (notes !== undefined) dto.notes = notes;
 
-  const estatus = parseFormEstatus(pick(body, 'estatus', 'Estatus'));
-  if (estatus !== undefined) dto.estatus = estatus;
-
   return dto;
 }
 

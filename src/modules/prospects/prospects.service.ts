@@ -135,13 +135,8 @@ export class ProspectsService {
     if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
       throw new BadRequestException('No se puede editar un prospecto convertido');
     }
-    if (dto.estatus === ProspectEstatus.CONVERTIDO) {
-      throw new BadRequestException(
-        'Use POST /prospects/:id/convert-to-client para marcar como convertido',
-      );
-    }
 
-    const { logoUrl: _omitLogoUrl, ...rest } = dto;
+    const { logoUrl: _omitLogoUrl, estatus: _omitEstatus, ...rest } = dto;
 
     Object.assign(prospect, rest);
 
@@ -204,17 +199,21 @@ export class ProspectsService {
     };
   }
 
-  async remove(id: number) {
+  async changeEstatus(id: number, estatus: ProspectEstatus) {
     const prospect = await this.findOne(id);
-    prospect.estatus = ProspectEstatus.DESCARTADO;
-    await this.prospectRepository.save(prospect);
-    await this.prospectRepository.softRemove(prospect);
-    return { deleted: true };
-  }
 
-  async toggleStatus(id: number) {
-    const prospect = await this.findOne(id);
-    prospect.isActive = prospect.isActive ? 0 : 1;
+    if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
+      throw new BadRequestException(
+        'No se puede cambiar el estatus de un prospecto convertido',
+      );
+    }
+    if (estatus === ProspectEstatus.CONVERTIDO) {
+      throw new BadRequestException(
+        'Use POST /prospects/:id/convert-to-client para marcar como convertido',
+      );
+    }
+
+    prospect.estatus = estatus;
     return this.prospectRepository.save(prospect);
   }
 }
