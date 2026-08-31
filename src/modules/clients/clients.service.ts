@@ -281,7 +281,7 @@ export class ClientsService {
         commissionPercentage === null ? null : commissionPercentage.toFixed(2);
     }
 
-    return this.clientRepository.save(client);
+    return this.findOne(id);
   }
 
   async remove(id: number) {
