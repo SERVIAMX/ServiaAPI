@@ -71,7 +71,10 @@ export class CreateClientDto {
   @MaxLength(100)
   country?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'Logo del cliente. En POST/PATCH usar multipart campo `logoUrl` (archivo); se sube a S3 Customers.',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)

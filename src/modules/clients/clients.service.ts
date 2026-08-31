@@ -2,7 +2,9 @@ import { calcularSaldoAcreditadoConBonificacion } from '../../common/utils/clien
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { S3_CUSTOMERS_FOLDER } from '../../common/constants/customer-upload.constants';
 import { runInTransaction } from '../../database/query-runner.util';
+import { S3Service } from '../s3/s3.service';
 import { User } from '../users/entities/user.entity';
 import { Client } from './entities/client.entity';
 import { BalanceHistory } from './entities/balance-history.entity';
@@ -23,9 +25,18 @@ export class ClientsService {
     @InjectRepository(BalanceHistory)
     private readonly balanceHistoryRepository: Repository<BalanceHistory>,
     private readonly dataSource: DataSource,
+    private readonly s3Service: S3Service,
   ) {}
 
-  async create(dto: CreateClientDto) {
+  private async uploadCustomerLogo(
+    logo: Express.Multer.File | undefined,
+  ): Promise<string | null> {
+    if (!logo) return null;
+    const { url } = await this.s3Service.uploadFile(logo, S3_CUSTOMERS_FOLDER);
+    return url;
+  }
+
+  async create(dto: CreateClientDto, logo?: Express.Multer.File) {
     const {
       creditBalance,
       creditLine,
@@ -67,6 +78,7 @@ export class ClientsService {
       ...clientDto,
       country: dto.country ?? 'México',
       isActive: 1,
+      logoUrl: await this.uploadCustomerLogo(logo),
       creditLine: creditLine === undefined ? null : creditLine.toFixed(2),
       discountPercentage:
         discountPercentage === undefined ? null : discountPercentage.toFixed(2),
@@ -217,16 +229,35 @@ export class ClientsService {
     };
   }
 
-  async update(id: number, dto: UpdateClientDto) {
+  async update(
+    id: number,
+    dto: UpdateClientDto,
+    logo?: Express.Multer.File,
+  ) {
     const client = await this.findOne(id);
 
-    const { creditLine, discountPercentage, commissionPercentage, ...rest } = dto as UpdateClientDto & {
+    const {
+      creditLine,
+      discountPercentage,
+      commissionPercentage,
+      logoUrl: _omitLogoUrl,
+      requiresCredit: _omitRequiresCredit,
+      amount: _omitAmount,
+      creditBalance: _omitCreditBalance,
+      ...rest
+    } = dto as UpdateClientDto & {
       creditLine?: number | null;
       discountPercentage?: number | null;
       commissionPercentage?: number | null;
     };
 
     Object.assign(client, rest);
+
+    const uploadedLogo = await this.uploadCustomerLogo(logo);
+    if (uploadedLogo) {
+      client.logoUrl = uploadedLogo;
+    }
+
     if (creditLine !== undefined) {
       client.creditLine = creditLine === null ? null : creditLine.toFixed(2);
     }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,19 +9,75 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
+import {
+  CUSTOMER_LOGO_ALLOWED_MIMES,
+  CUSTOMER_LOGO_MAX_UPLOAD_BYTES,
+} from '../../common/constants/customer-upload.constants';
 import { PermissionAction } from '../../common/enums/permission-action.enum';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { ClientsService } from './clients.service';
-import { CreateClientDto } from './dto/create-client.dto';
-import { UpdateClientDto } from './dto/update-client.dto';
 import { FilterClientDto } from './dto/filter-client.dto';
+import {
+  parseCreateClientFormBody,
+  parseUpdateClientFormBody,
+} from './utils/client-form.util';
+
+const logoInterceptor = FileInterceptor('logoUrl', {
+  storage: memoryStorage(),
+  limits: { fileSize: CUSTOMER_LOGO_MAX_UPLOAD_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (!CUSTOMER_LOGO_ALLOWED_MIMES.has(file.mimetype)) {
+      return cb(
+        new BadRequestException(
+          'Logo inválido. Use PNG, JPG, JPEG, WEBP o SVG',
+        ) as unknown as Error,
+        false,
+      );
+    }
+    cb(null, true);
+  },
+});
+
+const clientFormBodySchema = {
+  type: 'object',
+  properties: {
+    businessName: { type: 'string' },
+    tradeName: { type: 'string' },
+    rfc: { type: 'string' },
+    email: { type: 'string' },
+    phone: { type: 'string' },
+    address: { type: 'string' },
+    city: { type: 'string' },
+    state: { type: 'string' },
+    postalCode: { type: 'string' },
+    country: { type: 'string' },
+    notes: { type: 'string' },
+    requiresCredit: { type: 'string', example: 'true' },
+    amount: { type: 'string', example: '200' },
+    creditLine: { type: 'string', example: '1000' },
+    discountPercentage: { type: 'string', example: '10' },
+    commissionPercentage: { type: 'string', example: '3.25' },
+    creditBalance: { type: 'string', example: '500' },
+    logoUrl: {
+      type: 'string',
+      format: 'binary',
+      description: 'Logo del cliente → S3 Customers',
+    },
+  },
+};
 
 @ApiTags('clients')
 @ApiBearerAuth()
@@ -56,17 +113,40 @@ export class ClientsController {
 
   @Post()
   @RequirePermissions('clients', PermissionAction.CREATE)
-  @ApiOperation({ summary: 'Crear cliente' })
-  create(@Body() dto: CreateClientDto) {
-    return this.clientsService.create(dto);
+  @UseInterceptors(logoInterceptor)
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Crear cliente',
+    description:
+      'multipart/form-data. Logo en campo `logoUrl` → S3 `Customers`. Se guarda en `Clients.logoUrl`.',
+  })
+  @ApiBody({ schema: clientFormBodySchema })
+  create(
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() logo?: Express.Multer.File,
+  ) {
+    const dto = parseCreateClientFormBody(body);
+    return this.clientsService.create(dto, logo);
   }
 
   @Patch(':id')
   @RequirePermissions('clients', PermissionAction.UPDATE)
-  @ApiOperation({ summary: 'Actualizar cliente' })
+  @UseInterceptors(logoInterceptor)
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Actualizar cliente',
+    description:
+      'multipart/form-data. Si envías `logoUrl` (archivo), reemplaza el logo en S3 `Customers`.',
+  })
   @ApiParam({ name: 'id' })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateClientDto) {
-    return this.clientsService.update(id, dto);
+  @ApiBody({ schema: clientFormBodySchema })
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() logo?: Express.Multer.File,
+  ) {
+    const dto = parseUpdateClientFormBody(body);
+    return this.clientsService.update(id, dto, logo);
   }
 
   @Delete(':id')
