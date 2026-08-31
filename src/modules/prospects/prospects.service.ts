@@ -8,7 +8,7 @@ import { Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
 import { Client } from '../clients/entities/client.entity';
 import { S3_PROSPECTS_FOLDER } from '../../common/constants/customer-upload.constants';
-import { ProspectEstatus } from '../../common/enums/prospect-estatus.enum';
+import { ProspectEstatus, PROSPECT_LIST_ESTATUS } from '../../common/enums/prospect-estatus.enum';
 import {
   withLocationFields,
   withLocationFieldsList,
@@ -90,8 +90,8 @@ export class ProspectsService {
     if (filter.estatus !== undefined) {
       qb.andWhere('p.estatus = :estatus', { estatus: filter.estatus });
     } else {
-      qb.andWhere('(p.estatus IS NULL OR p.estatus IN (:...pipeline))', {
-        pipeline: [ProspectEstatus.NUEVO, ProspectEstatus.EN_SEGUIMIENTO],
+      qb.andWhere('p.estatus IN (:...visibleEstatus)', {
+        visibleEstatus: [...PROSPECT_LIST_ESTATUS],
       });
     }
     if (filter.search?.trim()) {
@@ -119,28 +119,16 @@ export class ProspectsService {
     };
   }
 
-  async findAllRecords(filter: FilterProspectDto = {}) {
-    const qb = this.prospectRepository
+  async findAllRecords() {
+    const data = await this.prospectRepository
       .createQueryBuilder('p')
-      .where('p.deletedAt IS NULL');
+      .where('p.deletedAt IS NULL')
+      .andWhere('p.estatus IN (:...visibleEstatus)', {
+        visibleEstatus: [...PROSPECT_LIST_ESTATUS],
+      })
+      .orderBy('p.id', 'ASC')
+      .getMany();
 
-    if (filter.isActive !== undefined) {
-      qb.andWhere('p.isActive = :active', {
-        active: filter.isActive ? 1 : 0,
-      });
-    }
-    if (filter.estatus !== undefined) {
-      qb.andWhere('p.estatus = :estatus', { estatus: filter.estatus });
-    }
-    if (filter.search?.trim()) {
-      const s = `%${filter.search.trim()}%`;
-      qb.andWhere(
-        '(p.businessName LIKE :s OR p.tradeName LIKE :s OR p.email LIKE :s OR p.rfc LIKE :s OR p.neighborhood LIKE :s)',
-        { s },
-      );
-    }
-
-    const data = await qb.orderBy('p.id', 'ASC').getMany();
     return withLocationFieldsList(data);
   }
 

@@ -135,13 +135,13 @@ export class ClientsController {
 
   @Get('all')
   @ApiOperation({
-    summary: 'Listar todos los clientes (sin paginación)',
+    summary: 'Listar todos los clientes',
     description:
-      'Devuelve todos los clientes activos en BD (sin soft delete). Incluye `customerBalance`, `lat`, `lng` y `neighborhood`. Filtros opcionales: `isActive`, `search`.',
+      'Sin paginación ni filtros. Todos los clientes (sin soft delete) con `customerBalance`, `lat`, `lng` y `neighborhood`.',
   })
   @ApiOkResponse({ description: 'Arreglo completo de clientes', type: Client, isArray: true })
-  findAllRecords(@Query() filter: FilterClientDto) {
-    return this.clientsService.findAllRecords(filter);
+  findAllRecords() {
+    return this.clientsService.findAllRecords();
   }
 
   @Get(':id')

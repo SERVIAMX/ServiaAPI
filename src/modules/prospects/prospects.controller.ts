@@ -288,7 +288,7 @@ export class ProspectsController {
 
     description:
 
-      'Por defecto excluye convertidos (3) y descartados (4). Usa query `estatus` con valores de **ProspectEstatus** para filtrar. Incluye `lat`, `lng` y `neighborhood`.',
+      'Por defecto solo incluye estatus 1 (Nuevo), 2 (En seguimiento) y 4 (Descartado). Excluye convertidos (3). Filtro opcional: `estatus`.',
 
   })
 
@@ -310,15 +310,15 @@ export class ProspectsController {
 
     description:
 
-      'Devuelve todos los prospectos (sin soft delete), incluidos convertidos y descartados. Filtros opcionales: `isActive`, `estatus`, `search`.',
+      'Sin paginación ni filtros. Todos los prospectos con estatus 1, 2 o 4 (excluye convertidos).',
 
   })
 
   @ApiOkResponse({ description: 'Arreglo completo de prospectos', type: Prospect, isArray: true })
 
-  findAllRecords(@Query() filter: FilterProspectDto) {
+  findAllRecords() {
 
-    return this.prospectsService.findAllRecords(filter);
+    return this.prospectsService.findAllRecords();
 
   }
 

@@ -14,6 +14,13 @@ export const PROSPECT_ESTATUS_VALUES = Object.values(ProspectEstatus).filter(
   (v): v is ProspectEstatus => typeof v === 'number',
 );
 
+/** Estatus visibles en listados (excluye CONVERTIDO = 3). */
+export const PROSPECT_LIST_ESTATUS = [
+  ProspectEstatus.NUEVO,
+  ProspectEstatus.EN_SEGUIMIENTO,
+  ProspectEstatus.DESCARTADO,
+] as const;
+
 export function isProspectEstatus(value: number): value is ProspectEstatus {
   return PROSPECT_ESTATUS_VALUES.includes(value as ProspectEstatus);
 }

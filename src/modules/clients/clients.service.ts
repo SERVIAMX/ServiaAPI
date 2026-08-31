@@ -186,26 +186,14 @@ export class ClientsService {
     };
   }
 
-  async findAllRecords(filter: FilterClientDto = {}) {
-    const qb = this.clientRepository
+  async findAllRecords() {
+    const data = await this.clientRepository
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.customerBalance', 'cb')
-      .where('c.deletedAt IS NULL');
+      .where('c.deletedAt IS NULL')
+      .orderBy('c.id', 'ASC')
+      .getMany();
 
-    if (filter.isActive !== undefined) {
-      qb.andWhere('c.isActive = :active', {
-        active: filter.isActive ? 1 : 0,
-      });
-    }
-    if (filter.search?.trim()) {
-      const s = `%${filter.search.trim()}%`;
-      qb.andWhere(
-        '(c.businessName LIKE :s OR c.tradeName LIKE :s OR c.email LIKE :s OR c.rfc LIKE :s OR c.neighborhood LIKE :s)',
-        { s },
-      );
-    }
-
-    const data = await qb.orderBy('c.id', 'ASC').getMany();
     return mapClientsForGet(data);
   }
 
