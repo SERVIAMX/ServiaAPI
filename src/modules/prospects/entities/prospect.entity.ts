@@ -87,4 +87,22 @@ export class Prospect {
   })
   @Column({ type: 'tinyint', nullable: true })
   estatus: ProspectEstatus | null;
+
+  @ApiPropertyOptional({
+    description: 'Latitud del punto en mapa',
+    example: 19.432608,
+  })
+  @Column({ type: 'double', nullable: true })
+  lat: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Longitud del punto en mapa',
+    example: -99.133209,
+  })
+  @Column({ type: 'double', nullable: true })
+  lng: number | null;
+
+  @ApiPropertyOptional({ description: 'Colonia / barrio', example: 'Centro' })
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  neighborhood: string | null;
 }

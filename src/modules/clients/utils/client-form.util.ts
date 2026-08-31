@@ -79,6 +79,11 @@ export function parseCreateClientFormBody(
     creditBalance: parseFormNumber(
       pick(body, 'creditBalance', 'CreditBalance'),
     ),
+    lat: parseFormNumber(pick(body, 'lat', 'Lat')),
+    lng: parseFormNumber(pick(body, 'lng', 'Lng')),
+    neighborhood: parseFormString(
+      pick(body, 'neighborhood', 'Neighborhood'),
+    ),
   };
 }
 
@@ -94,11 +99,6 @@ export function parseUpdateClientFormBody(
 
   const email = parseFormString(pick(body, 'email', 'Email'));
   if (email !== undefined) dto.email = email;
-
-  const requiresCredit = parseFormBoolean(
-    pick(body, 'requiresCredit', 'RequiresCredit'),
-  );
-  if (requiresCredit !== undefined) dto.requiresCredit = requiresCredit;
 
   const tradeName = parseFormString(pick(body, 'tradeName', 'TradeName'));
   if (tradeName !== undefined) dto.tradeName = tradeName;
@@ -127,9 +127,6 @@ export function parseUpdateClientFormBody(
   const notes = parseFormString(pick(body, 'notes', 'Notes'));
   if (notes !== undefined) dto.notes = notes;
 
-  const amount = parseFormNumber(pick(body, 'amount', 'Amount'));
-  if (amount !== undefined) dto.amount = amount;
-
   const creditLine = parseFormNumber(pick(body, 'creditLine', 'CreditLine'));
   if (creditLine !== undefined) dto.creditLine = creditLine;
 
@@ -145,10 +142,16 @@ export function parseUpdateClientFormBody(
     dto.commissionPercentage = commissionPercentage;
   }
 
-  const creditBalance = parseFormNumber(
-    pick(body, 'creditBalance', 'CreditBalance'),
+  const lat = parseFormNumber(pick(body, 'lat', 'Lat'));
+  if (lat !== undefined) dto.lat = lat;
+
+  const lng = parseFormNumber(pick(body, 'lng', 'Lng'));
+  if (lng !== undefined) dto.lng = lng;
+
+  const neighborhood = parseFormString(
+    pick(body, 'neighborhood', 'Neighborhood'),
   );
-  if (creditBalance !== undefined) dto.creditBalance = creditBalance;
+  if (neighborhood !== undefined) dto.neighborhood = neighborhood;
 
   return dto;
 }

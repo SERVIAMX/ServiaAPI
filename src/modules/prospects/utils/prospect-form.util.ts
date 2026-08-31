@@ -69,6 +69,11 @@ export function parseCreateProspectFormBody(
     country: parseFormString(pick(body, 'country', 'Country')),
     notes: parseFormString(pick(body, 'notes', 'Notes')),
     estatus: parseFormEstatus(pick(body, 'estatus', 'Estatus')),
+    lat: parseFormNumber(pick(body, 'lat', 'Lat')),
+    lng: parseFormNumber(pick(body, 'lng', 'Lng')),
+    neighborhood: parseFormString(
+      pick(body, 'neighborhood', 'Neighborhood'),
+    ),
   };
 }
 
@@ -111,6 +116,17 @@ export function parseUpdateProspectFormBody(
 
   const notes = parseFormString(pick(body, 'notes', 'Notes'));
   if (notes !== undefined) dto.notes = notes;
+
+  const lat = parseFormNumber(pick(body, 'lat', 'Lat'));
+  if (lat !== undefined) dto.lat = lat;
+
+  const lng = parseFormNumber(pick(body, 'lng', 'Lng'));
+  if (lng !== undefined) dto.lng = lng;
+
+  const neighborhood = parseFormString(
+    pick(body, 'neighborhood', 'Neighborhood'),
+  );
+  if (neighborhood !== undefined) dto.neighborhood = neighborhood;
 
   return dto;
 }

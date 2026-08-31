@@ -1,14 +1,16 @@
-import { ApiHideProperty } from '@nestjs/swagger';
+import { ApiHideProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
+import { CustomerBalance } from './customer-balance.entity';
 
 @Entity({ name: 'Clients' })
 export class Client {
@@ -101,4 +103,36 @@ export class Client {
     nullable: true,
   })
   commissionPercentage: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Latitud del punto en mapa',
+    example: 19.432608,
+    nullable: true,
+  })
+  @Column({ type: 'double', nullable: true })
+  lat: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Longitud del punto en mapa',
+    example: -99.133209,
+    nullable: true,
+  })
+  @Column({ type: 'double', nullable: true })
+  lng: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Colonia / barrio',
+    example: 'Centro',
+    nullable: true,
+  })
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  neighborhood: string | null;
+
+  @ApiPropertyOptional({
+    type: () => CustomerBalance,
+    description: 'Saldo del cliente (balance pagado y creditBalance)',
+    nullable: true,
+  })
+  @OneToOne(() => CustomerBalance, (balance) => balance.customer)
+  customerBalance?: CustomerBalance | null;
 }

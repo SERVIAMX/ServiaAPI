@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { S3_CUSTOMERS_FOLDER } from '../../common/constants/customer-upload.constants';
+import { mapClientForGet, mapClientsForGet } from '../../common/utils/client-response.util';
 import { runInTransaction } from '../../database/query-runner.util';
 import { S3Service } from '../s3/s3.service';
 import { User } from '../users/entities/user.entity';
@@ -152,6 +153,7 @@ export class ClientsService {
     const limit = filter.limit ?? 10;
     const qb = this.clientRepository
       .createQueryBuilder('c')
+      .leftJoinAndSelect('c.customerBalance', 'cb')
       .where('c.deletedAt IS NULL');
 
     if (filter.isActive !== undefined) {
@@ -162,7 +164,7 @@ export class ClientsService {
     if (filter.search?.trim()) {
       const s = `%${filter.search.trim()}%`;
       qb.andWhere(
-        '(c.businessName LIKE :s OR c.tradeName LIKE :s OR c.email LIKE :s OR c.rfc LIKE :s)',
+        '(c.businessName LIKE :s OR c.tradeName LIKE :s OR c.email LIKE :s OR c.rfc LIKE :s OR c.neighborhood LIKE :s)',
         { s },
       );
     }
@@ -174,7 +176,7 @@ export class ClientsService {
       .getManyAndCount();
 
     return {
-      data,
+      data: mapClientsForGet(data),
       meta: {
         total,
         page,
@@ -184,7 +186,7 @@ export class ClientsService {
     };
   }
 
-  async findOne(id: number) {
+  private async findOneEntity(id: number): Promise<Client> {
     const client = await this.clientRepository.findOne({
       where: { id },
     });
@@ -194,8 +196,19 @@ export class ClientsService {
     return client;
   }
 
+  async findOne(id: number) {
+    const client = await this.clientRepository.findOne({
+      where: { id },
+      relations: { customerBalance: true },
+    });
+    if (!client || client.deletedAt) {
+      throw new NotFoundException('Cliente no encontrado');
+    }
+    return mapClientForGet(client);
+  }
+
   async findUsersByClient(id: number, filter: FilterClientDto) {
-    await this.findOne(id);
+    await this.findOneEntity(id);
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
     const qb = this.userRepository
@@ -235,16 +248,13 @@ export class ClientsService {
     dto: UpdateClientDto,
     logo?: Express.Multer.File,
   ) {
-    const client = await this.findOne(id);
+    const client = await this.findOneEntity(id);
 
     const {
       creditLine,
       discountPercentage,
       commissionPercentage,
       logoUrl: _omitLogoUrl,
-      requiresCredit: _omitRequiresCredit,
-      amount: _omitAmount,
-      creditBalance: _omitCreditBalance,
       ...rest
     } = dto as UpdateClientDto & {
       creditLine?: number | null;
@@ -275,7 +285,7 @@ export class ClientsService {
   }
 
   async remove(id: number) {
-    const client = await this.findOne(id);
+    const client = await this.findOneEntity(id);
     await runInTransaction(this.dataSource, async (manager) => {
       await manager
         .createQueryBuilder()
@@ -289,7 +299,7 @@ export class ClientsService {
   }
 
   async toggleStatus(id: number) {
-    const client = await this.findOne(id);
+    const client = await this.findOneEntity(id);
     client.isActive = client.isActive ? 0 : 1;
     return this.clientRepository.save(client);
   }

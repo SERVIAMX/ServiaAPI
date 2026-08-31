@@ -1,9 +1,11 @@
+import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
   Entity,
   JoinColumn,
-  ManyToOne,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -12,16 +14,26 @@ import { Client } from './client.entity';
 
 @Entity({ name: 'CustomerBalance' })
 export class CustomerBalance {
+  @ApiProperty()
   @PrimaryGeneratedColumn({
     type: 'bigint',
     transformer: bigintTransformer,
   } as object)
   id: number;
 
-  @ManyToOne(() => Client, { onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+  @OneToOne(() => Client, (client) => client.customerBalance, {
+    onDelete: 'NO ACTION',
+    onUpdate: 'NO ACTION',
+  })
   @JoinColumn({ name: 'CustomerId' })
+  @Exclude()
+  @ApiHideProperty()
   customer: Client | null;
 
+  @ApiProperty({
+    description: 'Saldo de crédito acreditado (financiado)',
+    example: '1000.00',
+  })
   @Column({
     type: 'decimal',
     precision: 12,
@@ -30,6 +42,10 @@ export class CustomerBalance {
   })
   creditBalance: string;
 
+  @ApiProperty({
+    description: 'Saldo pagado acreditado',
+    example: '500.00',
+  })
   @Column({
     type: 'decimal',
     precision: 10,
@@ -38,12 +54,14 @@ export class CustomerBalance {
   })
   balance: string;
 
+  @ApiProperty()
   @CreateDateColumn({
     type: 'datetime',
     comment: 'Fecha de registro (CST México)',
   })
   createdAt: Date;
 
+  @ApiProperty()
   @UpdateDateColumn({
     type: 'datetime',
     comment: 'Fecha de última actualización (CST México)',

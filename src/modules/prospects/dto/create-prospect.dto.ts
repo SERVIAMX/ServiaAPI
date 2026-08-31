@@ -3,6 +3,8 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Matches,
@@ -95,4 +97,26 @@ export class CreateProspectDto {
   @IsInt()
   @IsIn(PROSPECT_ESTATUS_VALUES)
   estatus?: ProspectEstatus;
+
+  @ApiPropertyOptional({
+    description: 'Latitud del punto en mapa',
+    example: 19.432608,
+  })
+  @IsOptional()
+  @IsLatitude()
+  lat?: number;
+
+  @ApiPropertyOptional({
+    description: 'Longitud del punto en mapa',
+    example: -99.133209,
+  })
+  @IsOptional()
+  @IsLongitude()
+  lng?: number;
+
+  @ApiPropertyOptional({ description: 'Colonia / barrio', example: 'Centro' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  neighborhood?: string;
 }

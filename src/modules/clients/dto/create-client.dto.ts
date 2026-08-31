@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsEmail,
+  IsLatitude,
+  IsLongitude,
   IsNumber,
   IsOptional,
   IsString,
@@ -148,4 +150,26 @@ export class CreateClientDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   creditBalance?: number;
+
+  @ApiPropertyOptional({
+    description: 'Latitud del punto en mapa',
+    example: 19.432608,
+  })
+  @IsOptional()
+  @IsLatitude()
+  lat?: number;
+
+  @ApiPropertyOptional({
+    description: 'Longitud del punto en mapa',
+    example: -99.133209,
+  })
+  @IsOptional()
+  @IsLongitude()
+  lng?: number;
+
+  @ApiPropertyOptional({ description: 'Colonia / barrio', example: 'Centro' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  neighborhood?: string;
 }

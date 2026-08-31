@@ -17,7 +17,9 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiExtraModels,
   ApiOperation,
+  ApiOkResponse,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
@@ -30,6 +32,8 @@ import { PermissionAction } from '../../common/enums/permission-action.enum';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { ClientsService } from './clients.service';
 import { FilterClientDto } from './dto/filter-client.dto';
+import { Client } from './entities/client.entity';
+import { CustomerBalance } from './entities/customer-balance.entity';
 import {
   parseCreateClientFormBody,
   parseUpdateClientFormBody,
@@ -71,6 +75,37 @@ const clientFormBodySchema = {
     discountPercentage: { type: 'string', example: '10' },
     commissionPercentage: { type: 'string', example: '3.25' },
     creditBalance: { type: 'string', example: '500' },
+    lat: { type: 'string', example: '19.432608', description: 'Latitud del mapa' },
+    lng: { type: 'string', example: '-99.133209', description: 'Longitud del mapa' },
+    neighborhood: { type: 'string', example: 'Centro', description: 'Colonia / barrio' },
+    logoUrl: {
+      type: 'string',
+      format: 'binary',
+      description: 'Logo del cliente → S3 Customers',
+    },
+  },
+};
+
+const clientUpdateFormBodySchema = {
+  type: 'object',
+  properties: {
+    businessName: { type: 'string' },
+    tradeName: { type: 'string' },
+    rfc: { type: 'string' },
+    email: { type: 'string' },
+    phone: { type: 'string' },
+    address: { type: 'string' },
+    city: { type: 'string' },
+    state: { type: 'string' },
+    postalCode: { type: 'string' },
+    country: { type: 'string' },
+    notes: { type: 'string' },
+    creditLine: { type: 'string', example: '1000' },
+    discountPercentage: { type: 'string', example: '10' },
+    commissionPercentage: { type: 'string', example: '3.25' },
+    lat: { type: 'string', example: '19.432608', description: 'Latitud del mapa' },
+    lng: { type: 'string', example: '-99.133209', description: 'Longitud del mapa' },
+    neighborhood: { type: 'string', example: 'Centro', description: 'Colonia / barrio' },
     logoUrl: {
       type: 'string',
       format: 'binary',
@@ -81,13 +116,19 @@ const clientFormBodySchema = {
 
 @ApiTags('clients')
 @ApiBearerAuth()
+@ApiExtraModels(Client, CustomerBalance)
 @Controller('clients')
 export class ClientsController {
   constructor(private readonly clientsService: ClientsService) {}
 
   @Get()
   @RequirePermissions('clients', PermissionAction.READ)
-  @ApiOperation({ summary: 'Listar clientes paginados' })
+  @ApiOperation({
+    summary: 'Listar clientes paginados',
+    description:
+      'Incluye `lat`, `lng`, `neighborhood` y relación `customerBalance` (balance, creditBalance).',
+  })
+  @ApiOkResponse({ description: 'Listado paginado de clientes', type: Client, isArray: true })
   findAll(@Query() filter: FilterClientDto) {
     return this.clientsService.findAll(filter);
   }
@@ -95,6 +136,10 @@ export class ClientsController {
   @Get(':id')
   @RequirePermissions('clients', PermissionAction.READ)
   @ApiOperation({ summary: 'Obtener cliente por ID' })
+  @ApiOkResponse({
+    description: 'Cliente con ubicación y customerBalance',
+    type: Client,
+  })
   @ApiParam({ name: 'id' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.clientsService.findOne(id);
@@ -136,10 +181,10 @@ export class ClientsController {
   @ApiOperation({
     summary: 'Actualizar cliente',
     description:
-      'multipart/form-data. Si envías `logoUrl` (archivo), reemplaza el logo en S3 `Customers`.',
+      'multipart/form-data. Si envían requiresCredit, amount o creditBalance se ignoran (no afectan CustomerBalance). Para movimientos de saldo use POST /api/balance/assignBalance.',
   })
   @ApiParam({ name: 'id' })
-  @ApiBody({ schema: clientFormBodySchema })
+  @ApiBody({ schema: clientUpdateFormBodySchema })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: Record<string, unknown>,

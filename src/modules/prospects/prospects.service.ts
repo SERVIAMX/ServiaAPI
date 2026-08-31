@@ -9,6 +9,10 @@ import { ClientsService } from '../clients/clients.service';
 import { Client } from '../clients/entities/client.entity';
 import { S3_PROSPECTS_FOLDER } from '../../common/constants/customer-upload.constants';
 import { ProspectEstatus } from '../../common/enums/prospect-estatus.enum';
+import {
+  withLocationFields,
+  withLocationFieldsList,
+} from '../../common/utils/location-fields.util';
 import { S3Service } from '../s3/s3.service';
 import { ConvertProspectDto } from './dto/convert-prospect.dto';
 import { CreateProspectDto } from './dto/create-prospect.dto';
@@ -93,7 +97,7 @@ export class ProspectsService {
     if (filter.search?.trim()) {
       const s = `%${filter.search.trim()}%`;
       qb.andWhere(
-        '(p.businessName LIKE :s OR p.tradeName LIKE :s OR p.email LIKE :s OR p.rfc LIKE :s)',
+        '(p.businessName LIKE :s OR p.tradeName LIKE :s OR p.email LIKE :s OR p.rfc LIKE :s OR p.neighborhood LIKE :s)',
         { s },
       );
     }
@@ -105,7 +109,7 @@ export class ProspectsService {
       .getManyAndCount();
 
     return {
-      data,
+      data: withLocationFieldsList(data),
       meta: {
         total,
         page,
@@ -122,7 +126,7 @@ export class ProspectsService {
     if (!prospect || prospect.deletedAt) {
       throw new NotFoundException('Prospecto no encontrado');
     }
-    return prospect;
+    return withLocationFields(prospect);
   }
 
   async update(
@@ -180,6 +184,9 @@ export class ProspectsService {
         country: prospect.country,
         notes: prospect.notes ?? undefined,
         logoUrl: prospect.logoUrl ?? undefined,
+        lat: prospect.lat ?? undefined,
+        lng: prospect.lng ?? undefined,
+        neighborhood: prospect.neighborhood ?? undefined,
         requiresCredit: dto.requiresCredit,
         amount: dto.amount,
         creditLine: dto.creditLine,

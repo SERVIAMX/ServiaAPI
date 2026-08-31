@@ -11,7 +11,7 @@ export class FilterClientDto extends PaginationDto {
   isActive?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Busca en businessName, tradeName, email, rfc',
+    description: 'Busca en businessName, tradeName, email, rfc, neighborhood',
   })
   @IsOptional()
   @IsString()
