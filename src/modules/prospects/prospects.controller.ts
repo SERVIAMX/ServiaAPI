@@ -17,11 +17,13 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiExtraModels,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
+import { prospectEstatusFormFieldSchema } from '../../common/swagger/prospect-estatus.swagger';
 import {
   CUSTOMER_LOGO_ALLOWED_MIMES,
   CUSTOMER_LOGO_MAX_UPLOAD_BYTES,
@@ -29,6 +31,9 @@ import {
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { PermissionAction } from '../../common/enums/permission-action.enum';
 import { FilterProspectDto } from './dto/filter-prospect.dto';
+import { CreateProspectDto } from './dto/create-prospect.dto';
+import { UpdateProspectDto } from './dto/update-prospect.dto';
+import { Prospect } from './entities/prospect.entity';
 import { ProspectsService } from './prospects.service';
 import {
   parseConvertProspectFormBody,
@@ -66,6 +71,7 @@ const prospectFormBodySchema = {
     postalCode: { type: 'string' },
     country: { type: 'string' },
     notes: { type: 'string' },
+    estatus: prospectEstatusFormFieldSchema,
     logoUrl: {
       type: 'string',
       format: 'binary',
@@ -95,13 +101,18 @@ const convertProspectFormBodySchema = {
 
 @ApiTags('prospects')
 @ApiBearerAuth()
+@ApiExtraModels(Prospect, CreateProspectDto, UpdateProspectDto, FilterProspectDto)
 @Controller('prospects')
 export class ProspectsController {
   constructor(private readonly prospectsService: ProspectsService) {}
 
   @Get()
   @RequirePermissions('prospects', PermissionAction.READ)
-  @ApiOperation({ summary: 'Listar prospectos paginados' })
+  @ApiOperation({
+    summary: 'Listar prospectos paginados',
+    description:
+      'Por defecto excluye convertidos (3) y descartados (4). Usa query `estatus` con valores de **ProspectEstatus** para filtrar.',
+  })
   findAll(@Query() filter: FilterProspectDto) {
     return this.prospectsService.findAll(filter);
   }

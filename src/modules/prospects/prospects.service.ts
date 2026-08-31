@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
 import { Client } from '../clients/entities/client.entity';
 import { S3_PROSPECTS_FOLDER } from '../../common/constants/customer-upload.constants';
+import { ProspectEstatus } from '../../common/enums/prospect-estatus.enum';
 import { S3Service } from '../s3/s3.service';
 import { ConvertProspectDto } from './dto/convert-prospect.dto';
 import { CreateProspectDto } from './dto/create-prospect.dto';
@@ -57,12 +58,13 @@ export class ProspectsService {
   }
 
   async create(dto: CreateProspectDto, logo?: Express.Multer.File) {
-    const { logoUrl: _omitLogoUrl, ...prospectDto } = dto;
+    const { logoUrl: _omitLogoUrl, estatus: _omitEstatus, ...prospectDto } = dto;
 
     const prospect = this.prospectRepository.create({
       ...prospectDto,
       country: dto.country ?? 'México',
       isActive: 1,
+      estatus: dto.estatus ?? ProspectEstatus.NUEVO,
       logoUrl: await this.uploadProspectLogo(logo),
     });
 
@@ -79,6 +81,13 @@ export class ProspectsService {
     if (filter.isActive !== undefined) {
       qb.andWhere('p.isActive = :active', {
         active: filter.isActive ? 1 : 0,
+      });
+    }
+    if (filter.estatus !== undefined) {
+      qb.andWhere('p.estatus = :estatus', { estatus: filter.estatus });
+    } else {
+      qb.andWhere('(p.estatus IS NULL OR p.estatus IN (:...pipeline))', {
+        pipeline: [ProspectEstatus.NUEVO, ProspectEstatus.EN_SEGUIMIENTO],
       });
     }
     if (filter.search?.trim()) {
@@ -122,6 +131,16 @@ export class ProspectsService {
     logo?: Express.Multer.File,
   ) {
     const prospect = await this.findOne(id);
+
+    if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
+      throw new BadRequestException('No se puede editar un prospecto convertido');
+    }
+    if (dto.estatus === ProspectEstatus.CONVERTIDO) {
+      throw new BadRequestException(
+        'Use POST /prospects/:id/convert-to-client para marcar como convertido',
+      );
+    }
+
     const { logoUrl: _omitLogoUrl, ...rest } = dto;
 
     Object.assign(prospect, rest);
@@ -140,6 +159,16 @@ export class ProspectsService {
     logo?: Express.Multer.File,
   ) {
     const prospect = await this.findOne(id);
+
+    if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
+      throw new BadRequestException('El prospecto ya fue convertido a cliente');
+    }
+    if (prospect.estatus === ProspectEstatus.DESCARTADO) {
+      throw new BadRequestException(
+        'No se puede convertir un prospecto descartado',
+      );
+    }
+
     await this.assertClientDoesNotExist(prospect);
 
     const client = await this.clientsService.create(
@@ -166,7 +195,8 @@ export class ProspectsService {
       logo,
     );
 
-    await this.prospectRepository.softRemove(prospect);
+    prospect.estatus = ProspectEstatus.CONVERTIDO;
+    await this.prospectRepository.save(prospect);
 
     return {
       client,
@@ -176,6 +206,8 @@ export class ProspectsService {
 
   async remove(id: number) {
     const prospect = await this.findOne(id);
+    prospect.estatus = ProspectEstatus.DESCARTADO;
+    await this.prospectRepository.save(prospect);
     await this.prospectRepository.softRemove(prospect);
     return { deleted: true };
   }

@@ -1,4 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
+import {
+  isProspectEstatus,
+  ProspectEstatus,
+} from '../../../common/enums/prospect-estatus.enum';
 import { ConvertProspectDto } from '../dto/convert-prospect.dto';
 import { CreateProspectDto } from '../dto/create-prospect.dto';
 import { UpdateProspectDto } from '../dto/update-prospect.dto';
@@ -15,6 +19,26 @@ function parseFormString(raw: unknown): string | undefined {
   if (raw === undefined || raw === null) return undefined;
   const s = String(raw).trim();
   return s.length ? s : undefined;
+}
+
+function parseFormNumber(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (typeof raw === 'number') return raw;
+  const s = String(raw).trim().replace(/,/g, '');
+  if (!s) return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseFormEstatus(raw: unknown): ProspectEstatus | undefined {
+  const n = parseFormNumber(raw);
+  if (n === undefined) return undefined;
+  if (!isProspectEstatus(n)) {
+    throw new BadRequestException(
+      'estatus inválido. Use 1=Nuevo, 2=En seguimiento, 3=Convertido, 4=Descartado',
+    );
+  }
+  return n;
 }
 
 export function parseCreateProspectFormBody(
@@ -44,6 +68,7 @@ export function parseCreateProspectFormBody(
     postalCode: parseFormString(pick(body, 'postalCode', 'PostalCode')),
     country: parseFormString(pick(body, 'country', 'Country')),
     notes: parseFormString(pick(body, 'notes', 'Notes')),
+    estatus: parseFormEstatus(pick(body, 'estatus', 'Estatus')),
   };
 }
 
@@ -87,16 +112,10 @@ export function parseUpdateProspectFormBody(
   const notes = parseFormString(pick(body, 'notes', 'Notes'));
   if (notes !== undefined) dto.notes = notes;
 
-  return dto;
-}
+  const estatus = parseFormEstatus(pick(body, 'estatus', 'Estatus'));
+  if (estatus !== undefined) dto.estatus = estatus;
 
-function parseFormNumber(raw: unknown): number | undefined {
-  if (raw === undefined || raw === null || raw === '') return undefined;
-  if (typeof raw === 'number') return raw;
-  const s = String(raw).trim().replace(/,/g, '');
-  if (!s) return undefined;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
+  return dto;
 }
 
 function parseFormBoolean(raw: unknown): boolean | undefined {

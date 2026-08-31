@@ -1,4 +1,4 @@
-import { ApiHideProperty } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import {
   Column,
@@ -9,6 +9,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { bigintTransformer } from '../../../common/transformers/bigint.transformer';
+import { ProspectEstatus } from '../../../common/enums/prospect-estatus.enum';
+import { prospectEstatusApiProperty } from '../../../common/swagger/prospect-estatus.swagger';
 
 @Entity({ name: 'Prospects' })
 export class Prospect {
@@ -77,4 +79,12 @@ export class Prospect {
   @Exclude()
   @ApiHideProperty()
   deletedAt: Date | null;
+
+  /** Ver `ProspectEstatus` en Swagger (components/schemas). */
+  @ApiPropertyOptional({
+    ...prospectEstatusApiProperty,
+    nullable: true,
+  })
+  @Column({ type: 'tinyint', nullable: true })
+  estatus: ProspectEstatus | null;
 }

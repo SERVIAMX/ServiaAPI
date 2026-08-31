@@ -1,11 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
 } from 'class-validator';
+import {
+  PROSPECT_ESTATUS_VALUES,
+  ProspectEstatus,
+} from '../../../common/enums/prospect-estatus.enum';
+import { prospectEstatusApiProperty } from '../../../common/swagger/prospect-estatus.swagger';
 
 export class CreateProspectDto {
   @ApiProperty()
@@ -79,4 +86,13 @@ export class CreateProspectDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    ...prospectEstatusApiProperty,
+    default: ProspectEstatus.NUEVO,
+  })
+  @IsOptional()
+  @IsInt()
+  @IsIn(PROSPECT_ESTATUS_VALUES)
+  estatus?: ProspectEstatus;
 }
