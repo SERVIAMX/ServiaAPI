@@ -28,8 +28,6 @@ import {
   CUSTOMER_LOGO_ALLOWED_MIMES,
   CUSTOMER_LOGO_MAX_UPLOAD_BYTES,
 } from '../../common/constants/customer-upload.constants';
-import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
-import { PermissionAction } from '../../common/enums/permission-action.enum';
 import { FilterProspectDto } from './dto/filter-prospect.dto';
 import { CreateProspectDto } from './dto/create-prospect.dto';
 import { UpdateProspectDto } from './dto/update-prospect.dto';
@@ -107,7 +105,6 @@ export class ProspectsController {
   constructor(private readonly prospectsService: ProspectsService) {}
 
   @Get()
-  @RequirePermissions('prospects', PermissionAction.READ)
   @ApiOperation({
     summary: 'Listar prospectos paginados',
     description:
@@ -118,7 +115,6 @@ export class ProspectsController {
   }
 
   @Get(':id')
-  @RequirePermissions('prospects', PermissionAction.READ)
   @ApiOperation({ summary: 'Obtener prospecto por ID' })
   @ApiParam({ name: 'id' })
   findOne(@Param('id', ParseIntPipe) id: number) {
@@ -126,7 +122,6 @@ export class ProspectsController {
   }
 
   @Post()
-  @RequirePermissions('prospects', PermissionAction.CREATE)
   @UseInterceptors(logoInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
@@ -144,7 +139,6 @@ export class ProspectsController {
   }
 
   @Patch(':id')
-  @RequirePermissions('prospects', PermissionAction.UPDATE)
   @UseInterceptors(logoInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
@@ -164,7 +158,6 @@ export class ProspectsController {
   }
 
   @Delete(':id')
-  @RequirePermissions('prospects', PermissionAction.DELETE)
   @ApiOperation({ summary: 'Eliminar prospecto (soft)' })
   @ApiParam({ name: 'id' })
   remove(@Param('id', ParseIntPipe) id: number) {
@@ -172,7 +165,6 @@ export class ProspectsController {
   }
 
   @Patch(':id/toggle-status')
-  @RequirePermissions('prospects', PermissionAction.UPDATE)
   @ApiOperation({ summary: 'Activar / desactivar prospecto' })
   @ApiParam({ name: 'id' })
   toggleStatus(@Param('id', ParseIntPipe) id: number) {
@@ -180,7 +172,6 @@ export class ProspectsController {
   }
 
   @Post(':id/convert-to-client')
-  @RequirePermissions('prospects', PermissionAction.UPDATE)
   @UseInterceptors(logoInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
