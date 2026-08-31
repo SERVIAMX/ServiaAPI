@@ -119,6 +119,31 @@ export class ProspectsService {
     };
   }
 
+  async findAllRecords(filter: FilterProspectDto = {}) {
+    const qb = this.prospectRepository
+      .createQueryBuilder('p')
+      .where('p.deletedAt IS NULL');
+
+    if (filter.isActive !== undefined) {
+      qb.andWhere('p.isActive = :active', {
+        active: filter.isActive ? 1 : 0,
+      });
+    }
+    if (filter.estatus !== undefined) {
+      qb.andWhere('p.estatus = :estatus', { estatus: filter.estatus });
+    }
+    if (filter.search?.trim()) {
+      const s = `%${filter.search.trim()}%`;
+      qb.andWhere(
+        '(p.businessName LIKE :s OR p.tradeName LIKE :s OR p.email LIKE :s OR p.rfc LIKE :s OR p.neighborhood LIKE :s)',
+        { s },
+      );
+    }
+
+    const data = await qb.orderBy('p.id', 'ASC').getMany();
+    return withLocationFieldsList(data);
+  }
+
   async findOne(id: number) {
     const prospect = await this.prospectRepository.findOne({
       where: { id },

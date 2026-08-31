@@ -302,6 +302,28 @@ export class ProspectsController {
 
 
 
+  @Get('all')
+
+  @ApiOperation({
+
+    summary: 'Listar todos los prospectos (sin paginación)',
+
+    description:
+
+      'Devuelve todos los prospectos (sin soft delete), incluidos convertidos y descartados. Filtros opcionales: `isActive`, `estatus`, `search`.',
+
+  })
+
+  @ApiOkResponse({ description: 'Arreglo completo de prospectos', type: Prospect, isArray: true })
+
+  findAllRecords(@Query() filter: FilterProspectDto) {
+
+    return this.prospectsService.findAllRecords(filter);
+
+  }
+
+
+
   @Get(':id')
 
   @ApiOperation({ summary: 'Obtener prospecto por ID' })
