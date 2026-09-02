@@ -4,14 +4,14 @@ import { IsBoolean, IsNumber, IsOptional, Min } from 'class-validator';
 export class ConvertProspectDto {
   @ApiProperty({
     description:
-      'Si es true, el cliente requiere crédito (debe enviar creditBalance > 0). Si es false, debe enviar amount > 0.',
+      'Obligatorio. Si es true, el cliente requiere crédito (debe enviar creditBalance > 0 y creditLine). Si es false, debe enviar amount > 0.',
     example: true,
   })
   @IsBoolean()
   requiresCredit: boolean;
 
   @ApiPropertyOptional({
-    description: 'Monto pagado inicial. Requerido si requiresCredit = false.',
+    description: 'Condicional: obligatorio si requiresCredit=false (debe ser > 0).',
     example: 200,
   })
   @IsOptional()
@@ -20,7 +20,7 @@ export class ConvertProspectDto {
   amount?: number;
 
   @ApiPropertyOptional({
-    description: 'Línea de crédito máxima. Requerido si requiresCredit = true.',
+    description: 'Condicional: obligatorio si requiresCredit=true.',
     example: 1000,
   })
   @IsOptional()
@@ -54,7 +54,7 @@ export class ConvertProspectDto {
 
   @ApiPropertyOptional({
     description:
-      'Monto de crédito solicitado. Requerido si requiresCredit = true.',
+      'Condicional: obligatorio si requiresCredit=true (debe ser > 0 y ≤ creditLine).',
     example: 1000,
   })
   @IsOptional()

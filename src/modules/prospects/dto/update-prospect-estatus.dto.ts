@@ -14,6 +14,7 @@ export class UpdateProspectEstatusDto {
   @ApiProperty({
     ...prospectEstatusApiProperty,
     description: [
+      'Obligatorio.',
       prospectEstatusApiProperty.description,
       'No se puede asignar `3` (CONVERTIDO) aquí; use `POST /prospects/:id/convert-to-client`.',
     ].join('\n'),

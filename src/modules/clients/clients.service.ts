@@ -2,7 +2,7 @@ import { calcularSaldoAcreditadoConBonificacion } from '../../common/utils/clien
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { S3_CUSTOMERS_FOLDER } from '../../common/constants/customer-upload.constants';
+import { S3_CUSTOMERS_FOLDER, CUSTOMER_LOGO_MAX_UPLOAD_BYTES } from '../../common/constants/customer-upload.constants';
 import { mapClientForGet, mapClientsForGet } from '../../common/utils/client-response.util';
 import { runInTransaction } from '../../database/query-runner.util';
 import { S3Service } from '../s3/s3.service';
@@ -33,7 +33,10 @@ export class ClientsService {
     logo: Express.Multer.File | undefined,
   ): Promise<string | null> {
     if (!logo) return null;
-    const { url } = await this.s3Service.uploadFile(logo, S3_CUSTOMERS_FOLDER);
+    const { url } = await this.s3Service.uploadFile(logo, S3_CUSTOMERS_FOLDER, {
+      allowAnyMime: true,
+      maxSizeBytes: CUSTOMER_LOGO_MAX_UPLOAD_BYTES,
+    });
     return url;
   }
 

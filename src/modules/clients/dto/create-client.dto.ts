@@ -13,7 +13,7 @@ import {
 } from 'class-validator';
 
 export class CreateClientDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Obligatorio. Razón social o nombre del negocio.' })
   @IsString()
   @MaxLength(200)
   businessName: string;
@@ -34,7 +34,7 @@ export class CreateClientDto {
   })
   rfc?: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Obligatorio. Correo electrónico.' })
   @IsEmail()
   email: string;
 
@@ -75,7 +75,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Logo del cliente. En POST/PATCH usar multipart campo `logoUrl` (archivo); se sube a S3 Customers.',
+      'Logo del cliente. En POST/PATCH usar multipart campo `logoUrl` (archivo, cualquier formato, máx. 20 MB); se sube a S3 Customers.',
   })
   @IsOptional()
   @IsString()
@@ -89,7 +89,7 @@ export class CreateClientDto {
 
   @ApiProperty({
     description:
-      'Si es true, el cliente requiere crédito (debe enviar CreditBalance > 0). Si es false, debe enviar Amount > 0.',
+      'Obligatorio. Si es true, el cliente requiere crédito (debe enviar creditBalance > 0 y creditLine). Si es false, debe enviar amount > 0.',
     example: true,
   })
   @IsBoolean()
@@ -97,7 +97,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Monto pagado inicial (solicitado). Requerido si RequiresCredit = false. En CustomerBalance.Balance se acredita con bonificación por DiscountPercentage (igual que assignBalance).',
+      'Condicional: obligatorio si requiresCredit=false (debe ser > 0). Monto pagado inicial.',
     example: 200,
   })
   @IsOptional()
@@ -107,7 +107,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Línea de crédito máxima. Se valida el CreditBalance solicitado (sin bono) contra CreditLine; el saldo acreditado sí puede superar CreditLine por bonificación.',
+      'Condicional: obligatorio si requiresCredit=true. Línea de crédito máxima.',
     example: 1000,
   })
   @IsOptional()
@@ -143,7 +143,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({
     description:
-      'Monto de crédito solicitado (financiado). Si RequiresCredit=true debe ser > 0 y ≤ CreditLine. En CustomerBalance.CreditBalance se guarda el Acreditado con bonificación.',
+      'Condicional: obligatorio si requiresCredit=true (debe ser > 0 y ≤ creditLine). Monto de crédito solicitado.',
     example: 1000,
   })
   @IsOptional()

@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
 import { Client } from '../clients/entities/client.entity';
-import { S3_PROSPECTS_FOLDER } from '../../common/constants/customer-upload.constants';
+import { S3_PROSPECTS_FOLDER, CUSTOMER_LOGO_MAX_UPLOAD_BYTES } from '../../common/constants/customer-upload.constants';
 import { ProspectEstatus, PROSPECT_LIST_ESTATUS } from '../../common/enums/prospect-estatus.enum';
 import {
   withLocationFields,
@@ -35,7 +35,10 @@ export class ProspectsService {
     logo: Express.Multer.File | undefined,
   ): Promise<string | null> {
     if (!logo) return null;
-    const { url } = await this.s3Service.uploadFile(logo, S3_PROSPECTS_FOLDER);
+    const { url } = await this.s3Service.uploadFile(logo, S3_PROSPECTS_FOLDER, {
+      allowAnyMime: true,
+      maxSizeBytes: CUSTOMER_LOGO_MAX_UPLOAD_BYTES,
+    });
     return url;
   }
 

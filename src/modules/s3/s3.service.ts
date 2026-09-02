@@ -13,6 +13,8 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 
+import { extname } from 'path';
+
 const ALLOWED_MIME = new Set([
   'image/png',
   'image/jpeg',
@@ -30,6 +32,13 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/svg+xml': 'svg',
   'application/pdf': 'pdf',
 };
+
+export interface S3UploadOptions {
+  /** Si true, acepta cualquier MIME (p. ej. logos de clientes/prospectos). */
+  allowAnyMime?: boolean;
+  /** Tamaño máximo en bytes; por defecto usa la config global de S3. */
+  maxSizeBytes?: number;
+}
 
 @Injectable()
 export class S3Service {
@@ -89,14 +98,22 @@ export class S3Service {
     }
   }
 
-  private extensionFromMime(mimetype: string): string {
-    const ext = EXT_BY_MIME[mimetype];
-    if (!ext) {
-      throw new BadRequestException(
-        'Tipo de archivo no permitido. Use PNG, JPG, WEBP, SVG o PDF.',
-      );
+  private extensionFromMime(mimetype: string): string | undefined {
+    return EXT_BY_MIME[mimetype];
+  }
+
+  private extensionFromFile(file: Express.Multer.File): string {
+    const fromMime = this.extensionFromMime(file.mimetype);
+    if (fromMime) return fromMime;
+
+    const fromName = extname(file.originalname || '')
+      .replace(/^\./, '')
+      .toLowerCase();
+    if (fromName && /^[a-z0-9]{1,10}$/.test(fromName)) {
+      return fromName;
     }
-    return ext;
+
+    return 'bin';
   }
 
   private buildObjectUrl(key: string): string {
@@ -106,6 +123,7 @@ export class S3Service {
   async uploadFile(
     file: Express.Multer.File,
     folder: string,
+    options?: S3UploadOptions,
   ): Promise<{ url: string; key: string }> {
     this.ensureConfigured();
 
@@ -113,15 +131,15 @@ export class S3Service {
       throw new BadRequestException('El archivo es obligatorio.');
     }
 
-    if (!ALLOWED_MIME.has(file.mimetype)) {
+    if (!options?.allowAnyMime && !ALLOWED_MIME.has(file.mimetype)) {
       throw new BadRequestException(
         'Tipo de archivo no permitido. Use PNG, JPG, WEBP, SVG o PDF.',
       );
     }
 
-    if (file.size > this.maxSize) {
+    if (file.size > (options?.maxSizeBytes ?? this.maxSize)) {
       throw new BadRequestException(
-        `El archivo excede el tamaño máximo (${this.maxSize} bytes).`,
+        `El archivo excede el tamaño máximo (${options?.maxSizeBytes ?? this.maxSize} bytes).`,
       );
     }
 
@@ -130,7 +148,7 @@ export class S3Service {
       throw new BadRequestException('folder es obligatorio.');
     }
 
-    const ext = this.extensionFromMime(file.mimetype);
+    const ext = this.extensionFromFile(file);
     const key = `${folderClean}/${randomUUID()}.${ext}`;
 
     try {

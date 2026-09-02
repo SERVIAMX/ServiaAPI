@@ -1,7 +1,5 @@
 import {
 
-  BadRequestException,
-
   Body,
 
   Controller,
@@ -48,14 +46,14 @@ import {
 
 import { memoryStorage } from 'multer';
 
-import { prospectEstatusFormFieldSchema } from '../../common/swagger/prospect-estatus.swagger';
+import {
+  convertProspectFormBodySchema,
+  prospectCreateFormBodySchema,
+  prospectUpdateFormBodySchema,
+} from '../../common/swagger/client-prospect-form.swagger';
 
 import {
-
-  CUSTOMER_LOGO_ALLOWED_MIMES,
-
   CUSTOMER_LOGO_MAX_UPLOAD_BYTES,
-
 } from '../../common/constants/customer-upload.constants';
 
 import { FilterProspectDto } from './dto/filter-prospect.dto';
@@ -88,169 +86,7 @@ const logoInterceptor = FileInterceptor('logoUrl', {
 
   limits: { fileSize: CUSTOMER_LOGO_MAX_UPLOAD_BYTES },
 
-  fileFilter: (_req, file, cb) => {
-
-    if (!CUSTOMER_LOGO_ALLOWED_MIMES.has(file.mimetype)) {
-
-      return cb(
-
-        new BadRequestException(
-
-          'Logo inválido. Use PNG, JPG, JPEG, WEBP o SVG',
-
-        ) as unknown as Error,
-
-        false,
-
-      );
-
-    }
-
-    cb(null, true);
-
-  },
-
 });
-
-
-
-const prospectFormBodySchema = {
-
-  type: 'object',
-
-  properties: {
-
-    businessName: { type: 'string' },
-
-    tradeName: { type: 'string' },
-
-    rfc: { type: 'string' },
-
-    email: { type: 'string' },
-
-    phone: { type: 'string' },
-
-    address: { type: 'string' },
-
-    city: { type: 'string' },
-
-    state: { type: 'string' },
-
-    postalCode: { type: 'string' },
-
-    country: { type: 'string' },
-
-    notes: { type: 'string' },
-
-    estatus: prospectEstatusFormFieldSchema,
-
-    lat: { type: 'string', example: '19.432608', description: 'Latitud del mapa' },
-
-    lng: { type: 'string', example: '-99.133209', description: 'Longitud del mapa' },
-
-    neighborhood: { type: 'string', example: 'Centro', description: 'Colonia / barrio' },
-
-    logoUrl: {
-
-      type: 'string',
-
-      format: 'binary',
-
-      description: 'Logo del prospecto → S3 Prospects',
-
-    },
-
-  },
-
-};
-
-
-
-const prospectUpdateFormBodySchema = {
-
-  type: 'object',
-
-  properties: {
-
-    businessName: { type: 'string' },
-
-    tradeName: { type: 'string' },
-
-    rfc: { type: 'string' },
-
-    email: { type: 'string' },
-
-    phone: { type: 'string' },
-
-    address: { type: 'string' },
-
-    city: { type: 'string' },
-
-    state: { type: 'string' },
-
-    postalCode: { type: 'string' },
-
-    country: { type: 'string' },
-
-    notes: { type: 'string' },
-
-    lat: { type: 'string', example: '19.432608', description: 'Latitud del mapa' },
-
-    lng: { type: 'string', example: '-99.133209', description: 'Longitud del mapa' },
-
-    neighborhood: { type: 'string', example: 'Centro', description: 'Colonia / barrio' },
-
-    logoUrl: {
-
-      type: 'string',
-
-      format: 'binary',
-
-      description: 'Logo del prospecto → S3 Prospects',
-
-    },
-
-  },
-
-};
-
-
-
-const convertProspectFormBodySchema = {
-
-  type: 'object',
-
-  required: ['requiresCredit'],
-
-  properties: {
-
-    requiresCredit: { type: 'string', example: 'true' },
-
-    amount: { type: 'string', example: '200' },
-
-    creditLine: { type: 'string', example: '1000' },
-
-    discountPercentage: { type: 'string', example: '10' },
-
-    commissionPercentage: { type: 'string', example: '3.25' },
-
-    creditBalance: { type: 'string', example: '500' },
-
-    logoUrl: {
-
-      type: 'string',
-
-      format: 'binary',
-
-      description:
-
-        'Logo opcional. Si no se envía, se usa el logo del prospecto.',
-
-    },
-
-  },
-
-};
 
 
 
@@ -352,11 +188,13 @@ export class ProspectsController {
 
     description:
 
-      'multipart/form-data. Logo en campo `logoUrl` → S3 `Prospects`. Se guarda en `Prospects.logoUrl`.',
+      'multipart/form-data. **Obligatorios:** `businessName`, `email`. ' +
+
+      'Resto opcional (`estatus` por defecto `1` Nuevo). Logo opcional en `logoUrl` → S3 `Prospects`.',
 
   })
 
-  @ApiBody({ schema: prospectFormBodySchema })
+  @ApiBody({ schema: prospectCreateFormBodySchema })
 
   create(
 
@@ -382,7 +220,9 @@ export class ProspectsController {
 
     description:
 
-      'Asigna `1` Nuevo, `2` En seguimiento o `4` Descartado. Para convertir a cliente use `POST /prospects/:id/convert-to-client`.',
+      '**Obligatorio:** `estatus` (`1` Nuevo, `2` En seguimiento o `4` Descartado). ' +
+
+      'Para convertir a cliente use `POST /prospects/:id/convert-to-client`.',
 
   })
 
@@ -416,7 +256,7 @@ export class ProspectsController {
 
     description:
 
-      'multipart/form-data. Para cambiar estatus use `PATCH /prospects/:id/estatus`.',
+      'multipart/form-data. Todos los campos son opcionales. Para cambiar estatus use `PATCH /prospects/:id/estatus`.',
 
   })
 
@@ -454,7 +294,13 @@ export class ProspectsController {
 
     description:
 
-      'Copia los datos del prospecto, crea un cliente con saldo/crédito inicial y marca el prospecto como convertido (`estatus = 3`). Logo opcional en `logoUrl`.',
+      '**Obligatorio:** `requiresCredit`. ' +
+
+      'Si `requiresCredit=true`: `creditBalance` (> 0) y `creditLine`. ' +
+
+      'Si `requiresCredit=false`: `amount` (> 0). ' +
+
+      'Copia datos del prospecto, crea cliente y marca prospecto como convertido (`estatus = 3`). Logo opcional.',
 
   })
 

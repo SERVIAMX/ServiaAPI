@@ -17,7 +17,7 @@ import {
 import { prospectEstatusApiProperty } from '../../../common/swagger/prospect-estatus.swagger';
 
 export class CreateProspectDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Obligatorio. Razón social o nombre del negocio.' })
   @IsString()
   @MaxLength(200)
   businessName: string;
@@ -36,7 +36,7 @@ export class CreateProspectDto {
   })
   rfc?: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Obligatorio. Correo electrónico.' })
   @IsEmail()
   email: string;
 
@@ -77,7 +77,7 @@ export class CreateProspectDto {
 
   @ApiPropertyOptional({
     description:
-      'Logo del prospecto. En POST/PATCH usar multipart campo `logoUrl` (archivo); se sube a S3 Prospects.',
+      'Logo del prospecto. En POST/PATCH usar multipart campo `logoUrl` (archivo, cualquier formato, máx. 20 MB); se sube a S3 Prospects.',
   })
   @IsOptional()
   @IsString()
