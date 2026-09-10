@@ -69,8 +69,8 @@ export function parseCreateProspectFormBody(
     country: parseFormString(pick(body, 'country', 'Country')),
     notes: parseFormString(pick(body, 'notes', 'Notes')),
     estatus: parseFormEstatus(pick(body, 'estatus', 'Estatus')),
-    lat: parseFormNumber(pick(body, 'lat', 'Lat')),
-    lng: parseFormNumber(pick(body, 'lng', 'Lng')),
+    lat: parseFormNumber(pick(body, 'lat', 'Lat', 'latitude', 'Latitude')),
+    lng: parseFormNumber(pick(body, 'lng', 'Lng', 'longitude', 'Longitude')),
     neighborhood: parseFormString(
       pick(body, 'neighborhood', 'Neighborhood'),
     ),
@@ -117,10 +117,12 @@ export function parseUpdateProspectFormBody(
   const notes = parseFormString(pick(body, 'notes', 'Notes'));
   if (notes !== undefined) dto.notes = notes;
 
-  const lat = parseFormNumber(pick(body, 'lat', 'Lat'));
+  const lat = parseFormNumber(pick(body, 'lat', 'Lat', 'latitude', 'Latitude'));
   if (lat !== undefined) dto.lat = lat;
 
-  const lng = parseFormNumber(pick(body, 'lng', 'Lng'));
+  const lng = parseFormNumber(
+    pick(body, 'lng', 'Lng', 'longitude', 'Longitude'),
+  );
   if (lng !== undefined) dto.lng = lng;
 
   const neighborhood = parseFormString(

@@ -295,6 +295,7 @@ export class ClientsService {
         commissionPercentage === null ? null : commissionPercentage.toFixed(2);
     }
 
+    await this.clientRepository.save(client);
     return this.findOne(id);
   }
 

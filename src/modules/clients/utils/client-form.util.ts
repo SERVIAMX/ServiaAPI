@@ -79,8 +79,8 @@ export function parseCreateClientFormBody(
     creditBalance: parseFormNumber(
       pick(body, 'creditBalance', 'CreditBalance'),
     ),
-    lat: parseFormNumber(pick(body, 'lat', 'Lat')),
-    lng: parseFormNumber(pick(body, 'lng', 'Lng')),
+    lat: parseFormNumber(pick(body, 'lat', 'Lat', 'latitude', 'Latitude')),
+    lng: parseFormNumber(pick(body, 'lng', 'Lng', 'longitude', 'Longitude')),
     neighborhood: parseFormString(
       pick(body, 'neighborhood', 'Neighborhood'),
     ),
@@ -142,10 +142,12 @@ export function parseUpdateClientFormBody(
     dto.commissionPercentage = commissionPercentage;
   }
 
-  const lat = parseFormNumber(pick(body, 'lat', 'Lat'));
+  const lat = parseFormNumber(pick(body, 'lat', 'Lat', 'latitude', 'Latitude'));
   if (lat !== undefined) dto.lat = lat;
 
-  const lng = parseFormNumber(pick(body, 'lng', 'Lng'));
+  const lng = parseFormNumber(
+    pick(body, 'lng', 'Lng', 'longitude', 'Longitude'),
+  );
   if (lng !== undefined) dto.lng = lng;
 
   const neighborhood = parseFormString(

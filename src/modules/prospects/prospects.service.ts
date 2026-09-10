@@ -145,12 +145,22 @@ export class ProspectsService {
     return withLocationFields(prospect);
   }
 
+  private async findOneEntity(id: number): Promise<Prospect> {
+    const prospect = await this.prospectRepository.findOne({
+      where: { id },
+    });
+    if (!prospect || prospect.deletedAt) {
+      throw new NotFoundException('Prospecto no encontrado');
+    }
+    return prospect;
+  }
+
   async update(
     id: number,
     dto: UpdateProspectDto,
     logo?: Express.Multer.File,
   ) {
-    const prospect = await this.findOne(id);
+    const prospect = await this.findOneEntity(id);
 
     if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
       throw new BadRequestException('No se puede editar un prospecto convertido');
@@ -165,7 +175,8 @@ export class ProspectsService {
       prospect.logoUrl = uploadedLogo;
     }
 
-    return this.prospectRepository.save(prospect);
+    await this.prospectRepository.save(prospect);
+    return this.findOne(id);
   }
 
   async convertToClient(
@@ -173,7 +184,7 @@ export class ProspectsService {
     dto: ConvertProspectDto,
     logo?: Express.Multer.File,
   ) {
-    const prospect = await this.findOne(id);
+    const prospect = await this.findOneEntity(id);
 
     if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
       throw new BadRequestException('El prospecto ya fue convertido a cliente');
@@ -223,7 +234,7 @@ export class ProspectsService {
   }
 
   async changeEstatus(id: number, estatus: ProspectEstatus) {
-    const prospect = await this.findOne(id);
+    const prospect = await this.findOneEntity(id);
 
     if (prospect.estatus === ProspectEstatus.CONVERTIDO) {
       throw new BadRequestException(
@@ -237,6 +248,7 @@ export class ProspectsService {
     }
 
     prospect.estatus = estatus;
-    return this.prospectRepository.save(prospect);
+    await this.prospectRepository.save(prospect);
+    return this.findOne(id);
   }
 }
