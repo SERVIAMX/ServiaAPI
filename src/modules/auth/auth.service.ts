@@ -32,11 +32,15 @@ export class AuthService {
     private readonly dataSource: DataSource,
   ) {}
 
-  private readonly administratorRoleId = 1;
+  private readonly administratorPortalRoleIds = new Set([1, 7]);
+
+  private isAdministratorPortalRole(roleId: number | undefined | null): boolean {
+    return roleId != null && this.administratorPortalRoleIds.has(roleId);
+  }
 
   async login(dto: LoginDto, ip?: string, userAgent?: string) {
     const user = await this.validateLoginCredentials(dto);
-    if (user.role?.id === this.administratorRoleId) {
+    if (this.isAdministratorPortalRole(user.role?.id)) {
       throw new ForbiddenException(
         'Este usuario debe iniciar sesión por el portal de administración',
       );
@@ -53,7 +57,7 @@ export class AuthService {
 
   async loginAdministrator(dto: LoginDto, ip?: string, userAgent?: string) {
     const user = await this.validateLoginCredentials(dto);
-    if (user.role?.id !== this.administratorRoleId) {
+    if (!this.isAdministratorPortalRole(user.role?.id)) {
       throw new ForbiddenException(
         'No tienes permiso para iniciar sesión como administrador',
       );

@@ -28,7 +28,7 @@ export class AuthController {
   @Post('login')
   @ApiOperation({
     summary:
-      'Iniciar sesión (usuarios no administradores; RoleId = 1 debe usar login/administrator)',
+      'Iniciar sesión (usuarios no administradores; RoleId 1 o 7 deben usar login/administrator)',
   })
   login(
     @Body() dto: LoginDto,
@@ -40,7 +40,9 @@ export class AuthController {
 
   @Public()
   @Post('login/administrator')
-  @ApiOperation({ summary: 'Iniciar sesión (solo rol administrador, RoleId = 1)' })
+  @ApiOperation({
+    summary: 'Iniciar sesión (portal administración: RoleId = 1 o 7)',
+  })
   loginAdministrator(
     @Body() dto: LoginDto,
     @Ip() ip: string,
