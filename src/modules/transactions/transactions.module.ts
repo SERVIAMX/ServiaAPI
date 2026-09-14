@@ -6,6 +6,7 @@ import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosModule } from '../productos/productos.module';
 import { Role } from '../roles/entities/role.entity';
 import { TelegramModule } from '../telegram/telegram.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../users/entities/user.entity';
 import { TransactionHistory } from './entities/transaction-history.entity';
 import { Transaction } from './entities/transaction.entity';
@@ -26,6 +27,7 @@ import { TransactionsService } from './transactions.service';
     forwardRef(() => ProductosModule),
     AuditLogModule,
     TelegramModule,
+    NotificationsModule,
   ],
   controllers: [TransactionsController],
   providers: [TransactionsService, TransactionGateService],

@@ -21,6 +21,7 @@ import { Client } from '../clients/entities/client.entity';
 import { CustomerBalance } from '../clients/entities/customer-balance.entity';
 import { ProductosService } from '../productos/productos.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/entities/user.entity';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { FilterTransactionsDto } from './dto/filter-transactions.dto';
@@ -193,6 +194,7 @@ export class TransactionsService {
     private readonly auditLogService: AuditLogService,
     private readonly transactionGate: TransactionGateService,
     private readonly telegramService: TelegramService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private mapTransactionListItem(t: Transaction) {
@@ -1096,6 +1098,10 @@ export class TransactionsService {
               `Cliente ${authUser.clientId}`,
           })
           .catch(() => undefined);
+      } else {
+        void this.notificationsService
+          .notifyLowBalanceIfNeeded(authUser.clientId)
+          .catch(() => undefined);
       }
 
       await this.auditLogService.record({
@@ -1140,6 +1146,10 @@ export class TransactionsService {
           responsePayload: pending,
           message: e.message,
         });
+
+        void this.notificationsService
+          .notifyLowBalanceIfNeeded(authUser.clientId)
+          .catch(() => undefined);
 
         return pending;
       }

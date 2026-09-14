@@ -7,7 +7,10 @@ export class CreateInitialSchema1730169600000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schemaPath = path.join(process.cwd(), 'database', 'schema.sql');
-    const sql = fs.readFileSync(schemaPath, 'utf8');
+    const sql = fs
+      .readFileSync(schemaPath, 'utf8')
+      // MySQL sin tablas tz no acepta nombres IANA; offset sí.
+      .replace(/SET\s+time_zone\s*=\s*'America\/Mexico_City'/gi, "SET time_zone = '-06:00'");
     const statements = sql
       .split(';')
       .map((s) => s.trim())

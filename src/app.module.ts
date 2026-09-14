@@ -33,6 +33,7 @@ import { PendingAssignmentModule } from './modules/pending-assignment/pending-as
 import { CreditPaymentsModule } from './modules/credit-payments/credit-payments.module';
 import { MoneyTransactionsModule } from './modules/money-transactions/money-transactions.module';
 import { ProspectsModule } from './modules/prospects/prospects.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { ProspectsModule } from './modules/prospects/prospects.module';
     CreditPaymentsModule,
     MoneyTransactionsModule,
     ProspectsModule,
+    NotificationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
