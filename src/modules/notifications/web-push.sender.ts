@@ -36,13 +36,15 @@ export class WebPushSender {
     const privada = config.get<string>('VAPID_PRIVATE_KEY')?.trim() || null;
     const sujeto =
       config.get<string>('VAPID_SUBJECT')?.trim() ||
-      'mailto:soporte@servia.local';
+      'mailto:soporte@servia.com';
 
     this.publicKey = publica;
     this.disponible = Boolean(publica && privada);
 
     if (this.disponible) {
+      // FCM/Chrome rechazan subject inválido (.local, http://localhost, etc.)
       webpush.setVapidDetails(sujeto, publica as string, privada as string);
+      this.log.log(`Web Push VAPID activo (subject=${sujeto})`);
     } else {
       this.log.warn(
         'Sin VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY: push a clientes desactivado.',
@@ -81,12 +83,28 @@ export class WebPushSender {
       );
       return { ok: true, expired: false };
     } catch (error) {
-      const status = (error as { statusCode?: number }).statusCode;
+      const err = error as {
+        statusCode?: number;
+        body?: string;
+        endpoint?: string;
+        message?: string;
+      };
+      const status = err.statusCode;
       if (status === 404 || status === 410) {
         return { ok: false, expired: true };
       }
+      const host = (() => {
+        try {
+          return err.endpoint ? new URL(err.endpoint).host : 'unknown';
+        } catch {
+          return 'unknown';
+        }
+      })();
+      const detail = (err.body || err.message || '').toString().trim();
       this.log.warn(
-        `Push no entregado (${status ?? 'sin código'}): ${(error as Error).message}`,
+        `Push no entregado (${status ?? 'sin código'}) host=${host}: ${detail}. ` +
+          'Causa habitual: la PWA se suscribió con otra VAPID_PUBLIC_KEY; ' +
+          'usar GET /notifications/status y volver a POST /subscription.',
       );
       return { ok: false, expired: false };
     }
