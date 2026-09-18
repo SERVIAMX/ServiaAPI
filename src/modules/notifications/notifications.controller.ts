@@ -21,6 +21,7 @@ import {
   SubscribePushDto,
   UnsubscribePushDto,
 } from './dto/push-subscription.dto';
+import { TestAdminPushDto } from './dto/test-admin-push.dto';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('notifications')
@@ -69,6 +70,7 @@ export class NotificationsController {
   @Post('test')
   @ApiOperation({
     summary: 'Enviar notificación de prueba a los dispositivos del usuario',
+    description: 'Simula el aviso de saldo bajo del cliente (< 150).',
   })
   @ApiOkResponse({
     schema: {
@@ -78,5 +80,35 @@ export class NotificationsController {
   })
   test(@CurrentUser() user: CurrentUserPayload): Promise<{ enviados: number }> {
     return this.notificationsService.test(user.userId);
+  }
+
+  @Post('test-admin')
+  @ApiOperation({
+    summary: 'Simulacro de notificaciones push para administradores',
+    description:
+      'Solo Super Administrador / Administrador. Envía a todos los dispositivos admin suscritos. ' +
+      '`tipo`: `transaction_error`, `movivendor_low` o `all` (default).',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      properties: {
+        enviados: { type: 'number', example: 2 },
+        tipos: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['transaction_error', 'movivendor_low'],
+        },
+      },
+    },
+  })
+  testAdmin(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: TestAdminPushDto,
+  ) {
+    return this.notificationsService.testAdmin(
+      user.roleId,
+      dto.tipo ?? 'all',
+    );
   }
 }

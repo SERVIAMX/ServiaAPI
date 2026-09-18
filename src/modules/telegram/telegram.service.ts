@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type TransactionErrorAlert = {
   idTransaction: number;
@@ -15,7 +16,10 @@ export type TransactionErrorAlert = {
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private isEnabled(): boolean {
     const enabled = this.config.get<string>('TELEGRAM_ENABLED', 'false');
@@ -84,6 +88,10 @@ export class TelegramService {
   }
 
   async notifyTransactionError(alert: TransactionErrorAlert): Promise<void> {
+    await this.notificationsService
+      .notifyAdminsTransactionError(alert)
+      .catch(() => undefined);
+
     const msg =
       `⚠️ Transacción rechazada por proveedor\n` +
       `Tx: #${alert.idTransaction} · Ext: ${alert.externalId}\n` +
@@ -95,6 +103,10 @@ export class TelegramService {
   }
 
   async notifyLowBalance(balance: number, threshold: number): Promise<void> {
+    await this.notificationsService
+      .notifyAdminsMovivendorLowBalance(balance, threshold)
+      .catch(() => undefined);
+
     const msg =
       `💰 Saldo Movivendor bajo\n` +
       `Balance: ${balance.toFixed(2)} (umbral: ${threshold})`;
